@@ -282,4 +282,4 @@
 
   ui();
   console.log('%c[AR] Pronto. Fluxo: responder → TERMINAR → ENVIAR.', 'color:#0a0;font-weight:bold');
-})();
+})(); 
