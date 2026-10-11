@@ -3,19 +3,31 @@
     if (window.__autoIA) { window.__autoIA.parar(); return; }
 
     // ===================== CONFIG =====================
-    const SEGUNDOS_PAGINA       = 5;
-    const RODADAS_VOTACAO       = 3;
-    const TENTATIVAS_MODELO     = 4;
-    const DELAY_ANTES_CLIQUE    = 300;
-    const DELAY_POS_OPCAO       = 900;
-    const DELAY_POS_TERMINAR    = 1200;
-    const TIMEOUT_QUESTAO       = 60000;
-    const ESPERA_POS_Q          = 2500;
-    const AUTOSUBMIT            = true;
-    const ENVIAR_SEMPRE         = true;
-    const VERIFICAR_ANTES_ENVIAR = true;   // aborta se marcar errado
-    const MAX_CHARS_CONTEXTO    = 12000;
-    const MAX_PAGINAS_GUARDADAS = 40;
+    const SEGUNDOS_PAGINA        = 5;
+    const RODADAS_VOTACAO        = 3;
+    const TENTATIVAS_POR_MODELO  = 2;
+    const DELAY_ANTES_CLIQUE     = 300;
+    const DELAY_POS_OPCAO        = 900;
+    const DELAY_POS_TERMINAR     = 1200;
+    const TIMEOUT_QUESTAO        = 60000;
+    const ESPERA_POS_Q           = 2500;
+    const AUTOSUBMIT             = true;
+    const ENVIAR_SEMPRE          = true;
+    const VERIFICAR_ANTES_ENVIAR = true;
+    const MAX_CHARS_CONTEXTO     = 12000;
+    const MAX_PAGINAS_GUARDADAS  = 40;
+
+    // Lista de modelos — tenta em ordem até um responder
+    const MODELOS = [
+        'openrouter/free',
+        'meta-llama/llama-3.3-70b-instruct:free',
+        'google/gemini-2.0-flash-exp:free',
+        'qwen/qwen-2.5-72b-instruct:free',
+        'mistralai/mistral-nemo:free',
+        'microsoft/phi-3-medium-128k-instruct:free',
+        'openchat/openchat-7b:free',
+        'huggingfaceh4/zephyr-7b-beta:free'
+    ];
 
     // ===================== API KEY =====================
     let API_KEY = localStorage.getItem('__or_key');
@@ -226,13 +238,11 @@
             'md-radio-button, [role="radio"], .md-radio-button'
         );
 
-        // 1) Match exato
         for (const r of radios) {
             const t = (r.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
             if (t === alvo) return r;
         }
 
-        // 2) Prefixo longo (primeiros 40 chars batem) — mais seguro que "includes"
         const prefixo = alvo.slice(0, 40);
         let melhor = null, melhorDelta = Infinity;
         for (const r of radios) {
@@ -259,14 +269,12 @@
         const textoRadio = (radio.innerText || '').trim().replace(/\s+/g, ' ');
         log(`🎯 Alvo: "${textoRadio.slice(0, 50)}..."`);
 
-        // Destaca visualmente
         const outlineOrig = radio.style.outline;
         const bgOrig = radio.style.background;
         radio.style.outline = '3px solid #ffeb3b';
         radio.style.background = 'rgba(255,235,59,.25)';
         await sleep(500);
 
-        // Já estava marcado?
         let marcados = qualEstaMarcado(container);
         if (marcados.length > 0 && bateComAlvo(marcados[0].texto, textoOpcao)) {
             log('ℹ️ Já estava marcada');
@@ -274,7 +282,7 @@
             return true;
         }
 
-        // Tentativa 1: click direto
+        // Tentativa 1
         try { radio.click(); } catch(_) {}
         await sleep(300);
         marcados = qualEstaMarcado(container);
@@ -283,9 +291,8 @@
             radio.style.outline = outlineOrig; radio.style.background = bgOrig;
             return true;
         }
-        log(`  ✗ click: marcou "${marcados[0]?.texto.slice(0,40) || 'nada'}..."`);
 
-        // Tentativa 2: click no label/container interno
+        // Tentativa 2
         const inner = radio.querySelector('.md-container') || radio.querySelector('label') || radio.querySelector('span');
         if (inner) {
             try { inner.click(); } catch(_) {}
@@ -298,7 +305,7 @@
             }
         }
 
-        // Tentativa 3: eventos de mouse completos
+        // Tentativa 3
         try {
             const r = radio.getBoundingClientRect();
             const x = r.left + r.width/2, y = r.top + r.height/2;
@@ -317,7 +324,7 @@
             return true;
         }
 
-        // Tentativa 4: Angular scope
+        // Tentativa 4
         try {
             if (window.angular) {
                 let s = angular.element(radio).scope(), n = 0;
@@ -338,7 +345,7 @@
             return true;
         }
 
-        // Tentativa 5: input radio nativo
+        // Tentativa 5
         const inp = radio.querySelector('input[type="radio"]');
         if (inp) {
             try {
@@ -355,22 +362,18 @@
             }
         }
 
-        // FALHOU
         radio.style.outline = outlineOrig;
         radio.style.background = bgOrig;
         marcados = qualEstaMarcado(container);
-        if (marcados.length > 0) {
-            log(`❌ FALHOU — marcou a errada: "${marcados[0].texto.slice(0,50)}..."`);
-        } else {
-            log('❌ FALHOU — nada ficou marcado');
-        }
+        if (marcados.length > 0) log(`❌ Marcou errada: "${marcados[0].texto.slice(0,50)}..."`);
+        else log('❌ Nada marcado');
         return false;
     }
 
     async function clicarTerminar() {
         const btn = acharBotaoTerminar();
         if (!btn) { log('❌ TERMINAR não achado'); return false; }
-        log('📤 Clicando em TERMINAR');
+        log('📤 TERMINAR');
         try { btn.click(); } catch(_) {}
         await sleep(200);
         if (document.contains(btn) && btn.offsetParent !== null) {
@@ -400,18 +403,16 @@
             : '';
 
         const instrucoesEspeciais = {
-            fato_opiniao: `ATENÇÃO — Questão sobre FATO vs OPINIÃO:
+            fato_opiniao: `ATENÇÃO — FATO vs OPINIÃO:
 - FATO: descreve algo real, objetivo, verificável. Não depende de quem fala.
 - OPINIÃO: expressa juízo, crença, sentimento, dúvida, possibilidade, valor ("acho", "talvez", "pode", "com certeza", "pacientemente").
 - POSSIBILIDADE (pode/deve/talvez) NÃO é fato.
 - ADVÉRBIOS DE MODO subjetivos ("pacientemente", "tristemente") tornam a frase OPINIÃO.
-- Descrições de como algo funciona fisicamente/bilogicamente SÃO fato.`,
+- Descrições de como algo funciona fisicamente SÃO fato.`,
 
             interpretacao: `Interpretação de texto: use SEMPRE o contexto. A resposta deve ser comprovada pelo texto.`,
-
             sinonimo: `Substitua mentalmente cada opção na frase original. Escolha a que mantém sentido idêntico.`,
-
-            geral: `Analise cada alternativa com cuidado. Elimine as claramente erradas antes de escolher.`
+            geral: `Analise cada alternativa com cuidado. Elimine as claramente erradas.`
         };
         const instrucao = instrucoesEspeciais[tipo] || instrucoesEspeciais.geral;
 
@@ -436,53 +437,84 @@ ${variacao}
 
 FORMATO OBRIGATÓRIO — apenas uma linha:
 RESPOSTA: N
-(onde N é o número da alternativa correta, ex: "RESPOSTA: 3")
-Não escreva mais nada além dessa linha.`;
+Não escreva mais nada.`;
     }
 
     async function perguntarUmaVez(prompt, totalOpcoes, rodada) {
-        for (let t = 0; t < TENTATIVAS_MODELO; t++) {
-            try {
-                const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + API_KEY,
-                        'Content-Type': 'application/json',
-                        'HTTP-Referer': location.origin,
-                        'X-Title': 'QuizVote'
-                    },
-                    body: JSON.stringify({
-                        model: 'openrouter/free',
-                        messages: [
-                            { role: 'system', content: 'Responda SEMPRE no formato "RESPOSTA: N".' },
-                            { role: 'user', content: prompt }
-                        ],
-                        temperature: rodada > 1 ? 0.4 : 0,
-                        max_tokens: 400
-                    })
-                });
-                if (!r.ok) { log(`  ⚠️ HTTP ${r.status}`); continue; }
-                const d = await r.json();
-                const raw = (d.choices && d.choices[0] &&
-                             d.choices[0].message &&
-                             d.choices[0].message.content || '').trim();
-                if (!raw) { log('  ⚠️ Vazio'); continue; }
+        for (let mi = 0; mi < MODELOS.length; mi++) {
+            const modelo = MODELOS[mi];
+            for (let t = 0; t < TENTATIVAS_POR_MODELO; t++) {
+                try {
+                    elStatus.textContent = `🌐 Modelo ${mi+1}/${MODELOS.length}...`;
+                    log(`🌐 ${modelo} (tent. ${t+1})`);
 
-                let num = null;
-                const mResp = raw.match(/RESPOSTA[:\s]*(\d+)/i);
-                if (mResp) num = parseInt(mResp[1], 10);
-                else {
-                    const mNum = raw.match(/\b(\d+)\b/g);
-                    if (mNum) for (const s of mNum) {
-                        const n = parseInt(s, 10);
-                        if (n >= 1 && n <= totalOpcoes) { num = n; break; }
+                    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + API_KEY,
+                            'Content-Type': 'application/json',
+                            'HTTP-Referer': location.origin,
+                            'X-Title': 'QuizVote'
+                        },
+                        body: JSON.stringify({
+                            model: modelo,
+                            messages: [
+                                { role: 'system', content: 'Responda SEMPRE no formato "RESPOSTA: N".' },
+                                { role: 'user', content: prompt }
+                            ],
+                            temperature: rodada > 1 ? 0.4 : 0,
+                            max_tokens: 400
+                        })
+                    });
+
+                    if (!r.ok) {
+                        const errTxt = (await r.text()).slice(0, 80);
+                        log(`  ❌ HTTP ${r.status}: ${errTxt}`);
+                        break; // próximo modelo
                     }
+
+                    const d = await r.json();
+
+                    if (d.error) {
+                        log(`  ❌ API: ${JSON.stringify(d.error).slice(0,100)}`);
+                        break;
+                    }
+
+                    const raw = (d.choices && d.choices[0] &&
+                                 d.choices[0].message &&
+                                 d.choices[0].message.content || '').trim();
+                    const modeloReal = (d.model || modelo).split('/').pop();
+
+                    if (!raw) {
+                        log(`  ⚠️ Vazio (via ${modeloReal})`);
+                        continue;
+                    }
+
+                    log(`  📩 "${raw.slice(0,80)}" (via ${modeloReal})`);
+
+                    let num = null;
+                    const mResp = raw.match(/RESPOSTA[:\s]*(\d+)/i);
+                    if (mResp) num = parseInt(mResp[1], 10);
+                    else {
+                        const mNum = raw.match(/\b(\d+)\b/g);
+                        if (mNum) for (const s of mNum) {
+                            const n = parseInt(s, 10);
+                            if (n >= 1 && n <= totalOpcoes) { num = n; break; }
+                        }
+                    }
+
+                    if (num && num >= 1 && num <= totalOpcoes) {
+                        log(`  ✅ ${num} via ${modeloReal}`);
+                        return { num, raw, modelo: modeloReal };
+                    } else {
+                        log(`  ⚠️ Sem número válido`);
+                    }
+                } catch (e) {
+                    log(`  ❌ Rede: ${e.message.slice(0,60)}`);
                 }
-                if (num && num >= 1 && num <= totalOpcoes) {
-                    return { num, raw, modelo: (d.model || '?').split('/').pop() };
-                }
-            } catch (e) { log(`  ⚠️ ${e.message.slice(0,40)}`); }
+            }
         }
+        log('❌ TODOS os modelos falharam');
         return null;
     }
 
@@ -493,12 +525,9 @@ Não escreva mais nada além dessa linha.`;
         const votos = {}, detalhes = [];
         for (let r = 1; r <= RODADAS_VOTACAO; r++) {
             log(`🗳️ Rodada ${r}/${RODADAS_VOTACAO}`);
-            elStatus.textContent = `🗳️ ${tipo} ${r}/${RODADAS_VOTACAO}...`;
-
             const prompt = montarPrompt(pergunta, opcoes, contexto, tipo, r);
             const res = await perguntarUmaVez(prompt, opcoes.length, r);
             if (!res) { log('  ❌ Sem resposta'); continue; }
-            log(`  → ${res.num} (via ${res.modelo})`);
             votos[res.num] = (votos[res.num] || 0) + 1;
             detalhes.push(res.num);
         }
@@ -518,6 +547,7 @@ Não escreva mais nada além dessa linha.`;
             const { pergunta, opcoes } = extrairQuestao(container);
             if (!pergunta || opcoes.length < 2) {
                 elStatus.textContent = '❌ Não extraí';
+                setModo('erro');
                 return false;
             }
 
@@ -529,7 +559,10 @@ Não escreva mais nada além dessa linha.`;
             const { vencedor, votos, detalhes, empate } = resultado;
 
             if (!vencedor) {
-                elStatus.textContent = '❌ Nenhuma resposta';
+                elStatus.textContent = '❌ IA não respondeu.\n' +
+                    '• Chave ativa?\n' +
+                    '• Crédito grátis ok?\n' +
+                    '• Internet?';
                 setModo('erro');
                 return false;
             }
@@ -544,23 +577,22 @@ Não escreva mais nada além dessa linha.`;
             }
 
             const textoOpcao = opcoes[vencedor - 1];
-            log(`Vou marcar opção ${vencedor}: "${textoOpcao}"`);
+            log(`Marcar opção ${vencedor}: "${textoOpcao}"`);
             elStatus.textContent = `✅ (${vencedor}) ${textoOpcao.slice(0, 35)} ${votosStr}`;
 
             await sleep(DELAY_ANTES_CLIQUE);
             const marcou = await clicarOpcao(textoOpcao, container);
 
-            // VERIFICAÇÃO FINAL antes de enviar
             if (VERIFICAR_ANTES_ENVIAR) {
                 const marcados = qualEstaMarcado(container);
                 if (marcados.length === 0) {
-                    log('❌ Nenhuma opção ficou marcada — abortando envio');
+                    log('❌ Nada marcado — abortando');
                     elStatus.textContent = '❌ Nada marcado — abortado';
                     setModo('erro');
                     return false;
                 }
                 if (!bateComAlvo(marcados[0].texto, textoOpcao)) {
-                    log(`❌ Marcou a errada: "${marcados[0].texto.slice(0,50)}..." — abortando`);
+                    log(`❌ Marcou errada — abortando`);
                     elStatus.textContent = '❌ Marcou errada — abortado';
                     setModo('erro');
                     return false;
@@ -667,6 +699,7 @@ Não escreva mais nada além dessa linha.`;
         modo = 'parado';
         setTimeout(() => painel.remove(), 100);
         window.__autoIA = null;
+        console.log('[AutoIA] Parado. Páginas:', paginasViradas);
     }
     painel.querySelector('#__btnParar').onclick = parar;
     painel.querySelector('#__btnKey').onclick = () => {
@@ -683,11 +716,12 @@ Não escreva mais nada além dessa linha.`;
         if (processandoQuestao) { elStatus.textContent = '⏳ Já resolvendo'; return; }
         tentativaAtual++;
         pedidoRepetir = true;
+        log(`🔄 Repetir (tentativa ${tentativaAtual})`);
     };
 
     // ===================== INICIA =====================
     window.__autoIA = { parar };
-    console.log('[AutoIA] Ativo. Verificação antes de enviar:', VERIFICAR_ANTES_ENVIAR);
+    console.log('[AutoIA] Ativo. Modelos:', MODELOS.length, '| Verificação:', VERIFICAR_ANTES_ENVIAR);
 
     setModo('folheando');
     loopPrincipal();
