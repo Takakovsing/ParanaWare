@@ -1,5 +1,4 @@
-(async function autoReaderAcumula() {
-    // ===================== SE JÁ RODANDO, PARA =====================
+(async function autoReaderCorrigido() {
     if (window.__autoIA) { window.__autoIA.parar(); return; }
 
     // ===================== CONFIG =====================
@@ -13,10 +12,10 @@
     const ESPERA_POS_Q       = 2500;
     const AUTOSUBMIT         = true;
     const ENVIAR_SEMPRE      = true;
-    const MAX_CHARS_CONTEXTO = 12000;  // limite de tamanho do contexto enviado
-    const MAX_PAGINAS_GUARDADAS = 40;  // quantas páginas manter em memória
+    const DESTACAR_ESCOLHA   = true;   // pisca a opção escolhida antes de enviar
+    const MAX_CHARS_CONTEXTO = 12000;
+    const MAX_PAGINAS_GUARDADAS = 40;
 
-    // ===================== API KEY =====================
     let API_KEY = localStorage.getItem('__or_key');
     if (!API_KEY) {
         API_KEY = prompt('Cole sua chave da OpenRouter (sk-or-v1-...):');
@@ -25,21 +24,15 @@
     }
 
     // ===================== MEMÓRIA DE PÁGINAS =====================
-    const memoria = {
-        paginas: [],        // array de strings, uma por página
-        ultimoHash: '',     // hash da última página vista
-        charsTotal: 0
-    };
+    const memoria = { paginas: [], ultimoHash: '', charsTotal: 0 };
 
     function hashPagina(txt) {
-        // hash simples: comprimento + primeiros + últimos 100 chars
         const t = txt.trim();
         return t.length + '|' + t.slice(0, 100) + '|' + t.slice(-100);
     }
 
     function capturarTextoPagina() {
         const clone = document.body.cloneNode(true);
-        // remove a questão atual se estiver visível
         const alvo = clone.querySelector('.page-switch-overlay-icon.next')
                   || clone.querySelector('button[id="finish-btn"]');
         if (alvo) {
@@ -67,25 +60,19 @@
     function guardarPaginaAtual() {
         const texto = capturarTextoPagina();
         if (!texto || texto.length < 20) return;
-
         const hash = hashPagina(texto);
-        if (hash === memoria.ultimoHash) return; // já guardei essa
-
+        if (hash === memoria.ultimoHash) return;
         memoria.ultimoHash = hash;
         memoria.paginas.push(texto);
         memoria.charsTotal += texto.length;
-
-        // limita memória
         while (memoria.paginas.length > MAX_PAGINAS_GUARDADAS) {
-            const removida = memoria.paginas.shift();
-            memoria.charsTotal -= removida.length;
+            memoria.charsTotal -= memoria.paginas.shift().length;
         }
-        log(`📚 Página guardada (${texto.length} chars, total: ${memoria.paginas.length} págs, ${memoria.charsTotal} chars)`);
+        log(`📚 Página guardada (${memoria.paginas.length} págs, ${memoria.charsTotal} chars)`);
     }
 
     function montarContexto() {
         if (memoria.paginas.length === 0) return '';
-        // pega as últimas páginas até atingir MAX_CHARS_CONTEXTO
         const partes = [];
         let total = 0;
         for (let i = memoria.paginas.length - 1; i >= 0; i--) {
@@ -100,11 +87,10 @@
     // ===================== PAINEL =====================
     const painel = document.createElement('div');
     painel.style.cssText = `
-        position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
-        background: #1a1a1a; color: #fff;
-        font: 12px/1.45 system-ui, sans-serif;
-        padding: 14px 16px; border-radius: 10px; max-width: 340px;
-        box-shadow: 0 6px 25px rgba(0,0,0,.6); user-select: none;
+        position:fixed; bottom:20px; right:20px; z-index:2147483647;
+        background:#1a1a1a; color:#fff; font:12px/1.45 system-ui,sans-serif;
+        padding:14px 16px; border-radius:10px; max-width:340px;
+        box-shadow:0 6px 25px rgba(0,0,0,.6); user-select:none;
     `;
     painel.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -116,29 +102,19 @@
              color:#4caf50;margin:4px 0;">5</div>
         <div id="__status" style="color:#ccc;font-size:11px;
              white-space:pre-wrap;margin-bottom:8px;min-height:36px;">
-            Páginas: <span id="__total" style="color:#fff;font-weight:bold;">0</span>
-            | Memória: <span id="__mem" style="color:#0f0;">0</span>
+            Páginas: <span id="__total">0</span> | Memória: <span id="__mem" style="color:#0f0;">0</span>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:6px;">
             <button id="__btnRepetir" style="flex:2;background:#ff9800;color:#fff;
-                border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;
-                cursor:pointer;">🔄 DE NOVO</button>
+                border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;">🔄 DE NOVO</button>
             <button id="__btnMem" style="flex:1;background:#2196f3;color:#fff;border:0;
-                padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;
-                cursor:pointer;">📚</button>
+                padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;">📚</button>
             <button id="__btnKey" style="flex:1;background:#333;color:#fff;border:0;
-                padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;
-                cursor:pointer;">🔑</button>
+                padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;">🔑</button>
         </div>
         <button id="__btnParar" style="width:100%;background:#e91e63;color:#fff;
-            border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;
-            cursor:pointer;">⏹ PARAR</button>
-        <style>
-            @keyframes pulse{
-                0%,100%{opacity:1;transform:scale(1)}
-                50%{opacity:.4;transform:scale(1.3)}
-            }
-        </style>
+            border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;">⏹ PARAR</button>
+        <style>@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}</style>
     `;
     document.body.appendChild(painel);
 
@@ -150,15 +126,9 @@
     const elStatus   = painel.querySelector('#__status');
     const btnRepetir = painel.querySelector('#__btnRepetir');
 
-    // ===================== ESTADO =====================
-    let contador           = SEGUNDOS_PAGINA;
-    let paginasViradas     = 0;
-    let modo               = 'folheando';
-    let ultimaQuestao      = '';
-    let inicioQuestao      = 0;
-    let tentativaAtual     = 1;
-    let processandoQuestao = false;
-    let pedidoRepetir      = false;
+    let contador = SEGUNDOS_PAGINA, paginasViradas = 0, modo = 'folheando';
+    let ultimaQuestao = '', inicioQuestao = 0, tentativaAtual = 1;
+    let processandoQuestao = false, pedidoRepetir = false;
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const log = txt => console.log('[AutoIA]', txt);
@@ -221,86 +191,125 @@
         return { pergunta, opcoes };
     }
 
-    // ===================== CLIQUE NA OPÇÃO =====================
-    function acharElementoOpcao(texto, container) {
-        if (!texto) return null;
-        const alvo = texto.trim().toLowerCase();
-        const abreviado = alvo.slice(0, 30);
-        let melhor = null, melhorLen = Infinity;
-        for (const el of container.querySelectorAll('*')) {
-            if (el.children.length > 4) continue;
-            const t = (el.innerText || '').trim().toLowerCase();
-            if (!t || t.length < 3) continue;
-            if (t === alvo || t.includes(abreviado)) {
-                if (t.length < melhorLen) { melhor = el; melhorLen = t.length; }
+    // ============ NOVO: ENCONTRAR O RADIO CORRETO DA OPÇÃO ============
+    // Procura APENAS elementos que são "radio button" e compara texto completo.
+    function encontrarRadioOpcao(textoOpcao, container) {
+        const alvo = textoOpcao.trim().toLowerCase().replace(/\s+/g, ' ');
+
+        // Candidatos: elementos que representam UMA opção
+        const seletores = 'md-radio-button, [role="radio"], label.md-radio-button, .md-radio-button';
+        const candidatos = container.querySelectorAll(seletores);
+
+        // 1) Match exato
+        for (const c of candidatos) {
+            const t = (c.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            if (t === alvo) return c;
+        }
+
+        // 2) Match parcial (a opção contém o alvo ou vice-versa), o mais curto ganha
+        let melhor = null, melhorDelta = Infinity;
+        for (const c of candidatos) {
+            const t = (c.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            if (t.includes(alvo) || alvo.includes(t)) {
+                const delta = Math.abs(t.length - alvo.length);
+                if (delta < melhorDelta) { melhor = c; melhorDelta = delta; }
             }
         }
-        return melhor;
-    }
+        if (melhor) return melhor;
 
-    function acharClicavel(el) {
-        let c = el, up = 0;
-        while (c && up < 10) {
-            if (c.tagName === 'MD-RADIO-BUTTON' || c.tagName === 'LABEL' ||
-                c.tagName === 'BUTTON' || c.tagName === 'INPUT') return c;
-            if (c.hasAttribute && (
-                c.hasAttribute('ng-click') || c.hasAttribute('ng-model') ||
-                c.getAttribute('role') === 'radio' ||
-                (c.classList && (c.classList.contains('md-radio-button') ||
-                                 c.classList.contains('radio-button')))
-            )) return c;
-            c = c.parentElement; up++;
-        }
-        return el;
-    }
-
-    function opcaoMarcada(clicavel, alvo) {
-        try {
-            const wrapper = clicavel.closest('[role="radio"]') ||
-                            clicavel.closest('md-radio-button') ||
-                            clicavel.parentElement;
-            if (wrapper) {
-                if (wrapper.getAttribute('aria-checked') === 'true') return true;
-                if (wrapper.classList && wrapper.classList.contains('md-checked')) return true;
-                if (wrapper.querySelector('[aria-checked="true"], .md-checked')) return true;
+        // 3) Fallback: procura por label/span que tenha o texto exato, e sobe até achar um container de opção
+        const todos = container.querySelectorAll('*');
+        for (const el of todos) {
+            if (el.children.length > 3) continue;
+            const t = (el.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            if (t === alvo) {
+                // Sobe procurando um pai que seja radio
+                let c = el.parentElement, up = 0;
+                while (c && up < 8) {
+                    if (c.tagName === 'MD-RADIO-BUTTON' ||
+                        c.getAttribute('role') === 'radio' ||
+                        (c.classList && c.classList.contains('md-radio-button'))) {
+                        return c;
+                    }
+                    c = c.parentElement; up++;
+                }
+                return el.parentElement || el;
             }
-            if (alvo.querySelector('input[type="radio"]:checked')) return true;
-        } catch (_) {}
+        }
+        return null;
+    }
+
+    function radioEstaoMarcado(radio) {
+        if (!radio) return false;
+        if (radio.getAttribute('aria-checked') === 'true') return true;
+        if (radio.classList && radio.classList.contains('md-checked')) return true;
+        const input = radio.querySelector('input[type="radio"]');
+        if (input && input.checked) return true;
+        // procura filhos com md-checked (Angular Material costuma por no próprio elemento)
+        const inner = radio.querySelector('.md-checked, [aria-checked="true"]');
+        if (inner) return true;
         return false;
     }
 
+    // ============ NOVO: CLICAR NA OPÇÃO (verifica ESTA opção) ============
     async function clicarOpcao(textoOpcao, container) {
-        const alvo = acharElementoOpcao(textoOpcao, container);
-        if (!alvo) { log('❌ Não achou opção'); return false; }
-        const clicavel = acharClicavel(alvo);
-        log(`Clicando em <${clicavel.tagName.toLowerCase()}>`);
+        const radio = encontrarRadioOpcao(textoOpcao, container);
+        if (!radio) { log('❌ Radio não encontrado'); return false; }
 
-        try { clicavel.click(); } catch(_) {}
-        await sleep(200);
-        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (click)'); return true; }
+        log(`Radio alvo: <${radio.tagName.toLowerCase()}> "${(radio.innerText||'').slice(0,40)}..."`);
 
+        // Destaca visualmente a escolha
+        const outlineOrig = radio.style.outline;
+        const bgOrig = radio.style.background;
+        if (DESTACAR_ESCOLHA) {
+            radio.style.outline = '3px solid #ffeb3b';
+            radio.style.background = 'rgba(255,235,59,.25)';
+            await sleep(600);
+        }
+
+        // Já estava marcado?
+        const jaMarcado = radioEstaoMarcado(radio);
+        if (jaMarcado) {
+            log('ℹ️ Já estava marcado (talvez da rodada anterior)');
+            if (DESTACAR_ESCOLHA) { radio.style.outline = outlineOrig; radio.style.background = bgOrig; }
+            return true;
+        }
+
+        // Tentativa 1: click direto no radio
+        try { radio.click(); } catch(_) {}
+        await sleep(250);
+        if (radioEstaoMarcado(radio)) { log('✅ Marcada (click)'); if (DESTACAR_ESCOLHA) { radio.style.outline = outlineOrig; radio.style.background = bgOrig; } return true; }
+
+        // Tentativa 2: click no label/span interno
+        const inner = radio.querySelector('.md-label, label, span, .md-container');
+        if (inner) {
+            try { inner.click(); } catch(_) {}
+            await sleep(250);
+            if (radioEstaoMarcado(radio)) { log('✅ Marcada (inner click)'); if (DESTACAR_ESCOLHA) { radio.style.outline = outlineOrig; radio.style.background = bgOrig; } return true; }
+        }
+
+        // Tentativa 3: eventos de mouse completos
         try {
-            const r = clicavel.getBoundingClientRect();
+            const r = radio.getBoundingClientRect();
             const x = r.left + r.width/2, y = r.top + r.height/2;
             ['mousedown','mouseup','click'].forEach(tp => {
-                clicavel.dispatchEvent(new MouseEvent(tp, {
+                radio.dispatchEvent(new MouseEvent(tp, {
                     bubbles: true, cancelable: true, view: window,
                     clientX: x, clientY: y, button: 0
                 }));
             });
         } catch(_) {}
-        await sleep(200);
-        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (mouse)'); return true; }
+        await sleep(250);
+        if (radioEstaoMarcado(radio)) { log('✅ Marcada (mouse)'); if (DESTACAR_ESCOLHA) { radio.style.outline = outlineOrig; radio.style.background = bgOrig; } return true; }
 
+        // Tentativa 4: Angular scope
         try {
             if (window.angular) {
-                let s = angular.element(clicavel).scope(), n = 0;
+                let s = angular.element(radio).scope(), n = 0;
                 while (s && n < 10) {
                     if (s.$apply) {
                         s.$apply(() => {
                             if (typeof s.select === 'function') s.select();
-                            else if (typeof s.click === 'function') s.click();
-                            else if (typeof s.toggle === 'function') s.toggle();
                         });
                         break;
                     }
@@ -308,40 +317,43 @@
                 }
             }
         } catch(_) {}
-        await sleep(200);
-        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (angular)'); return true; }
+        await sleep(250);
+        if (radioEstaoMarcado(radio)) { log('✅ Marcada (angular)'); if (DESTACAR_ESCOLHA) { radio.style.outline = outlineOrig; radio.style.background = bgOrig; } return true; }
 
+        // Tentativa 5: input radio interno
         try {
-            const radio = clicavel.querySelector('input[type="radio"]');
-            if (radio) {
-                radio.click(); radio.checked = true;
-                radio.dispatchEvent(new Event('change', { bubbles: true }));
+            const inp = radio.querySelector('input[type="radio"]');
+            if (inp) {
+                inp.checked = true;
+                inp.click();
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
             }
         } catch(_) {}
-        await sleep(200);
-        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (radio)'); return true; }
+        await sleep(250);
+        if (radioEstaoMarcado(radio)) { log('✅ Marcada (input)'); if (DESTACAR_ESCOLHA) { radio.style.outline = outlineOrig; radio.style.background = bgOrig; } return true; }
 
-        log('⚠️ Não confirmei marcação');
-        return true;
+        // Remove destaque de qualquer forma
+        if (DESTACAR_ESCOLHA) { radio.style.outline = outlineOrig; radio.style.background = bgOrig; }
+
+        log('❌ NÃO consegui marcar essa opção — abortando (não vou enviar)');
+        return false;
     }
 
     async function clicarTerminar() {
         const btn = acharBotaoTerminar();
         if (!btn) { log('❌ TERMINAR não achado'); return false; }
-        log('📤 Clicando em TERMINAR...');
+        log('📤 TERMINAR');
         try { btn.click(); } catch(_) {}
         await sleep(200);
         if (document.contains(btn) && btn.offsetParent !== null) {
             ['mousedown','mouseup','click'].forEach(tp => {
-                btn.dispatchEvent(new MouseEvent(tp, {
-                    bubbles: true, cancelable: true, view: window
-                }));
+                btn.dispatchEvent(new MouseEvent(tp, { bubbles: true, cancelable: true, view: window }));
             });
         }
         return true;
     }
 
-    // ===================== CHAMADA À IA =====================
+    // ===================== IA =====================
     async function perguntarUmaVez(prompt, totalOpcoes, rodada) {
         for (let t = 0; t < TENTATIVAS_MODELO; t++) {
             try {
@@ -373,8 +385,7 @@
                 if (m) {
                     const num = parseInt(m[0], 10);
                     if (num >= 1 && num <= totalOpcoes) {
-                        const modelo = (d.model || '?').split('/').pop();
-                        return { num, raw, modelo };
+                        return { num, raw, modelo: (d.model || '?').split('/').pop() };
                     }
                 }
             } catch (e) { log(`  ⚠️ ${e.message.slice(0,40)}`); }
@@ -382,14 +393,10 @@
         return null;
     }
 
-    // ===================== VOTAÇÃO =====================
     async function votarQuestao(pergunta, opcoes, contexto) {
         const lista = opcoes.map((o, i) => `${i+1}. ${o}`).join('\n');
-        const votos = {};
-        const detalhes = [];
-
-        const temContexto = contexto && contexto.length > 50;
-        const blocoContexto = temContexto
+        const votos = {}, detalhes = [];
+        const blocoContexto = contexto && contexto.length > 50
             ? `TEXTO DO LIVRO (páginas lidas até agora):\n${contexto}`
             : '(Sem texto do livro disponível)';
 
@@ -398,46 +405,12 @@
             elStatus.textContent = `🗳️ Votação ${r}/${RODADAS_VOTACAO}...`;
 
             const prompts = [
-                `Você responde questões de interpretação de texto em português.
-
-${blocoContexto}
-
-PERGUNTA:
-${pergunta}
-
-OPÇÕES:
-${lista}
-
-Com base no texto acima, responda APENAS com o número (1-${opcoes.length}).`,
-
-                `Você é professor de português corrigindo prova escolar.
-
-${blocoContexto}
-
-QUESTÃO:
-${pergunta}
-
-ALTERNATIVAS:
-${lista}
-
-Qual a ÚNICA alternativa correta segundo o texto? Responda apenas o número (1-${opcoes.length}).`,
-
-                `Analise a questão de interpretação usando o texto fornecido.
-
-${blocoContexto}
-
-PERGUNTA:
-${pergunta}
-
-RESPOSTAS:
-${lista}
-
-Número da resposta correta:`
+                `Você responde questões de interpretação em português.\n\n${blocoContexto}\n\nPERGUNTA:\n${pergunta}\n\nOPÇÕES:\n${lista}\n\nResponda APENAS com o número (1-${opcoes.length}).`,
+                `Professor de português corrigindo prova.\n\n${blocoContexto}\n\nQUESTÃO:\n${pergunta}\n\nALTERNATIVAS:\n${lista}\n\nNúmero (1-${opcoes.length}):`,
+                `Analise usando o texto.\n\n${blocoContexto}\n\nPERGUNTA:\n${pergunta}\n\nRESPOSTAS:\n${lista}\n\nNúmero:`
             ];
 
-            const prompt = prompts[(r - 1) % prompts.length];
-            const res = await perguntarUmaVez(prompt, opcoes.length, r);
-
+            const res = await perguntarUmaVez(prompts[(r - 1) % prompts.length], opcoes.length, r);
             if (!res) { log('  ❌ Sem resposta'); continue; }
             log(`  → ${res.num} (via ${res.modelo})`);
             votos[res.num] = (votos[res.num] || 0) + 1;
@@ -446,54 +419,47 @@ Número da resposta correta:`
 
         let maxVotos = 0, vencedor = null, empate = false;
         for (const k in votos) {
-            if (votos[k] > maxVotos) {
-                maxVotos = votos[k]; vencedor = parseInt(k, 10); empate = false;
-            } else if (votos[k] === maxVotos) {
-                empate = true;
-            }
+            if (votos[k] > maxVotos) { maxVotos = votos[k]; vencedor = parseInt(k, 10); empate = false; }
+            else if (votos[k] === maxVotos) empate = true;
         }
-
         return { vencedor, votos, detalhes, empate };
     }
 
-    // ===================== RESOLVER QUESTÃO =====================
+    // ===================== RESOLVER =====================
     async function resolverQuestao(container, tentativa) {
         setModo('resolvendo');
         try {
             const { pergunta, opcoes } = extrairQuestao(container);
-            if (!pergunta || opcoes.length < 2) {
-                elStatus.textContent = '❌ Não extraí a questão';
-                return false;
-            }
+            if (!pergunta || opcoes.length < 2) { elStatus.textContent = '❌ Não extraí'; return false; }
 
             const contexto = montarContexto();
-            log(`Contexto: ${contexto.length} chars de ${memoria.paginas.length} páginas`);
-            elStatus.textContent = `🧠 "${pergunta.slice(0, 40)}..." | ctx ${contexto.length}c`;
+            log(`Contexto: ${contexto.length} chars`);
+            elStatus.textContent = `🧠 "${pergunta.slice(0, 40)}..."`;
 
             const resultado = await votarQuestao(pergunta, opcoes, contexto);
             const { vencedor, votos, detalhes, empate } = resultado;
 
-            if (!vencedor) {
-                elStatus.textContent = '❌ Nenhuma resposta';
-                return false;
-            }
+            if (!vencedor) { elStatus.textContent = '❌ Nenhuma resposta'; return false; }
 
             const votosStr = `[${detalhes.join(',')}]`;
             log(`Votos: ${JSON.stringify(votos)} | Seq: ${votosStr}`);
 
             if (empate) {
-                log('⚠️ EMPATE detectado');
-                elStatus.textContent = `⚠️ Empate ${votosStr} — resolva manual`;
+                log('⚠️ EMPATE');
+                elStatus.textContent = `⚠️ Empate ${votosStr}`;
                 if (!ENVIAR_SEMPRE) return false;
             }
 
             const textoOpcao = opcoes[vencedor - 1];
+            log(`Vou marcar opção ${vencedor}: "${textoOpcao}"`);
             elStatus.textContent = `✅ (${vencedor}) ${textoOpcao.slice(0, 35)} ${votosStr}`;
-            log(`Escolhido (${vencedor}): ${textoOpcao}`);
 
             await sleep(DELAY_ANTES_CLIQUE);
             const marcou = await clicarOpcao(textoOpcao, container);
-            if (!marcou) { elStatus.textContent = '❌ Falha ao marcar'; return false; }
+            if (!marcou) {
+                elStatus.textContent = '❌ Não consegui marcar — abortando';
+                return false; // NÃO envia!
+            }
             elStatus.textContent = '👆 Marcada. Enviando...';
 
             if (AUTOSUBMIT) {
@@ -514,19 +480,15 @@ Número da resposta correta:`
         }
     }
 
-    // ===================== LOOP PRINCIPAL =====================
+    // ===================== LOOP =====================
     async function loopPrincipal() {
-        // Guarda a página atual imediatamente
-        guardarPaginaAtual();
-        atualizarMem();
+        guardarPaginaAtual(); atualizarMem();
 
         while (modo !== 'parado') {
             const container = acharContainerQuestao();
             if (container && !processandoQuestao) {
                 const textoAtual = (container.innerText || '').trim();
-                if (textoAtual !== ultimaQuestao ||
-                    Date.now() - inicioQuestao > TIMEOUT_QUESTAO ||
-                    pedidoRepetir) {
+                if (textoAtual !== ultimaQuestao || Date.now() - inicioQuestao > TIMEOUT_QUESTAO || pedidoRepetir) {
                     ultimaQuestao = textoAtual;
                     inicioQuestao = Date.now();
                     processandoQuestao = true;
@@ -550,23 +512,17 @@ Número da resposta correta:`
 
             contador--;
             elContador.textContent = contador;
-
-            // A cada 1s, tenta capturar a página atual (caso texto mude no meio)
-            guardarPaginaAtual();
-            atualizarMem();
+            guardarPaginaAtual(); atualizarMem();
 
             if (contador <= 0) {
-                // Antes de virar, garante que a página atual foi guardada
                 guardarPaginaAtual();
                 avancarPagina();
                 paginasViradas++;
                 elTotal.textContent = paginasViradas;
                 contador = SEGUNDOS_PAGINA;
                 elContador.textContent = contador;
-                // Espera um pouco pra próxima página carregar
                 await sleep(800);
-                guardarPaginaAtual();
-                atualizarMem();
+                guardarPaginaAtual(); atualizarMem();
             }
         }
     }
@@ -577,12 +533,8 @@ Número da resposta correta:`
                       || document.querySelector('.page-switch-overlay-icon.next');
             if (alvo && window.angular) {
                 let s = angular.element(alvo).scope(), n = 0;
-                while (s && typeof s.goToNextPage !== 'function' && n < 12) {
-                    s = s.$parent; n++;
-                }
-                if (s && typeof s.goToNextPage === 'function') {
-                    s.$apply(() => s.goToNextPage()); return;
-                }
+                while (s && typeof s.goToNextPage !== 'function' && n < 12) { s = s.$parent; n++; }
+                if (s && typeof s.goToNextPage === 'function') { s.$apply(() => s.goToNextPage()); return; }
             }
         } catch (e) {}
         const btn = document.querySelector('.page-switch-overlay-icon.embedded.next');
@@ -597,7 +549,6 @@ Número da resposta correta:`
         modo = 'parado';
         setTimeout(() => painel.remove(), 100);
         window.__autoIA = null;
-        console.log('[AutoIA] Parado. Páginas:', paginasViradas);
     }
     painel.querySelector('#__btnParar').onclick = parar;
     painel.querySelector('#__btnKey').onclick = () => {
@@ -606,27 +557,18 @@ Número da resposta correta:`
     };
     painel.querySelector('#__btnMem').onclick = () => {
         const ctx = montarContexto();
-        alert(
-            `📚 MEMÓRIA\n\n` +
-            `Páginas guardadas: ${memoria.paginas.length}\n` +
-            `Total de chars: ${memoria.charsTotal}\n` +
-            `Contexto a enviar: ${ctx.length} chars\n\n` +
-            `--- PRÉVIA (início) ---\n` +
-            ctx.slice(0, 400) + '...'
-        );
+        alert(`📚 Memória: ${memoria.paginas.length} págs, ${memoria.charsTotal} chars\nContexto: ${ctx.length}\n\n--- Prévia ---\n${ctx.slice(0, 400)}...`);
     };
     btnRepetir.onclick = () => {
         const container = acharContainerQuestao();
-        if (!container) { elStatus.textContent = '⚠️ Nenhuma questão na tela'; return; }
-        if (processandoQuestao) { elStatus.textContent = '⏳ Já resolvendo...'; return; }
+        if (!container) { elStatus.textContent = '⚠️ Sem questão'; return; }
+        if (processandoQuestao) { elStatus.textContent = '⏳ Já resolvendo'; return; }
         tentativaAtual++;
         pedidoRepetir = true;
-        log(`🔄 Repetir (tentativa ${tentativaAtual})`);
     };
 
-    // ===================== INICIA =====================
     window.__autoIA = { parar };
-    console.log('[AutoIA] Ativo com memória de páginas. Votação:', RODADAS_VOTACAO);
+    console.log('[AutoIA] Ativo. Clica na opção e verifica ANTES de enviar.');
 
     setModo('folheando');
     loopPrincipal();
