@@ -1,93 +1,36 @@
-javascript:(function(){
-    if(window.__spyAtivo){ window.__spyAtivo(); return; }
-
-    var box = document.createElement('div');
-    box.style.cssText = 'position:fixed;z-index:2147483647;border:2px solid #e91e63;background:rgba(233,30,99,.15);pointer-events:none;transition:all .05s;border-radius:2px;';
-    document.body.appendChild(box);
-
-    var info = document.createElement('div');
-    info.style.cssText = 'position:fixed;bottom:10px;left:10px;z-index:2147483647;background:#111;color:#0f0;font:12px/1.5 monospace;padding:10px 12px;border-radius:6px;max-width:90vw;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,.5);pointer-events:none;';
-    info.textContent = '🔎 Espião ativo — passe o mouse e clique. Pressione ESC ou clique no botão pra sair.';
-    document.body.appendChild(info);
-
-    var btn = document.createElement('button');
-    btn.textContent = '✕ sair';
-    btn.style.cssText = 'position:fixed;bottom:10px;right:10px;z-index:2147483647;background:#e91e63;color:#fff;border:0;padding:8px 14px;border-radius:6px;font:bold 12px sans-serif;cursor:pointer;';
-    document.body.appendChild(btn);
-
-    function descrever(el){
-        var linhas = [];
-        linhas.push('TAG: <' + el.tagName.toLowerCase() + '>');
-        if(el.id) linhas.push('ID: #' + el.id);
-        if(el.className && typeof el.className === 'string')
-            linhas.push('CLASSES: .' + el.className.trim().split(/\s+/).join(' .'));
-        var attrs = Array.from(el.attributes || [])
-            .filter(function(a){ return a.name !== 'class' && a.name !== 'id'; })
-            .map(function(a){ return a.name + '="' + a.value.slice(0,60) + '"'; });
-        if(attrs.length) linhas.push('ATRIBUTOS: ' + attrs.join(' '));
-        var txt = (el.innerText || '').trim().slice(0,120);
-        if(txt) linhas.push('TEXTO: "' + txt + '"');
-        var r = el.getBoundingClientRect();
-        linhas.push('TAMANHO: ' + Math.round(r.width) + '×' + Math.round(r.height));
-        linhas.push('CAMINHO CSS: ' + caminhoCSS(el));
-        return linhas.join('\n');
+(function autoAvancar() {
+    // Se já está rodando, para
+    if (window.__autoTimer) {
+        clearInterval(window.__autoTimer);
+        window.__autoTimer = null;
+        console.log('⏹ Auto-avançar PARADO');
+        return;
     }
 
-    function caminhoCSS(el){
-        var partes = [];
-        while(el && el.nodeType === 1 && partes.length < 5){
-            var p = el.tagName.toLowerCase();
-            if(el.id){ partes.unshift(p + '#' + el.id); break; }
-            if(el.className && typeof el.className === 'string'){
-                var c = el.className.trim().split(/\s+/)[0];
-                if(c) p += '.' + c;
-            }
-            partes.unshift(p);
-            el = el.parentElement;
+    const SEGUNDOS = 5;
+    const INTERVALO = SEGUNDOS * 1000;
+
+    console.log(`▶ Auto-avançar INICIADO (${SEGUNDOS}s por página)`);
+    console.log('Rode o script de novo pra parar.');
+
+    window.__autoTimer = setInterval(() => {
+        // Tenta os seletores do Odilo (overlay de próxima página)
+        let botao =
+            document.querySelector('.page-switch-overlay-icon.embedded.next') ||
+            document.querySelector('[ng-click*="goToNextPage"]') ||
+            document.querySelector('#left-page-btn + button') ||
+            document.querySelector('button[aria-label="Próximo"]');
+
+        if (botao && botao.offsetParent !== null) {
+            botao.click();
+            console.log(`➡ Página avançada (${new Date().toLocaleTimeString()})`);
+        } else {
+            // Fallback: simula seta direita no teclado
+            document.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'ArrowRight', code: 'ArrowRight',
+                keyCode: 39, which: 39, bubbles: true
+            }));
+            console.log('➡ Seta direita enviada (fallback)');
         }
-        return partes.join(' > ');
-    }
-
-    function mover(e){
-        var el = e.target;
-        if(el === box || el === info || el === btn) return;
-        var r = el.getBoundingClientRect();
-        box.style.top = r.top + 'px';
-        box.style.left = r.left + 'px';
-        box.style.width = r.width + 'px';
-        box.style.height = r.height + 'px';
-        info.textContent = descrever(el);
-        info.style.pointerEvents = 'none';
-    }
-
-    function clicar(e){
-        e.preventDefault();
-        e.stopPropagation();
-        var el = e.target;
-        console.log('%c🔎 Elemento capturado:', 'color:#e91e63;font-weight:bold');
-        console.log(el);
-        console.log('Seletor:', caminhoCSS(el));
-        try{
-            navigator.clipboard.writeText(caminhoCSS(el));
-            info.textContent += '\n\n✅ Seletor copiado! (veja o Console F12)';
-        }catch(_){}
-        return false;
-    }
-
-    function sair(){
-        document.removeEventListener('mousemove', mover, true);
-        document.removeEventListener('click', clicar, true);
-        document.removeEventListener('keydown', tecla, true);
-        box.remove(); info.remove(); btn.remove();
-        window.__spyAtivo = null;
-    }
-
-    function tecla(e){ if(e.key === 'Escape') sair(); }
-
-    document.addEventListener('mousemove', mover, true);
-    document.addEventListener('click', clicar, true);
-    document.addEventListener('keydown', tecla, true);
-    btn.addEventListener('click', sair);
-
-    window.__spyAtivo = sair;
+    }, INTERVALO);
 })();
