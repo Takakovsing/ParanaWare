@@ -2,11 +2,11 @@
   if (window.__arInit) { console.log('[AR] Já rodando.'); return; }
   window.__arInit = true;
 
-  // ============ CONFIG (padrão) ============
-  const API_KEY = 'COLE_SUA_CHAVE_AQUI';
-  const MODELO  = 'openrouter/auto';   // roteia automaticamente
+  // ============ CONFIG ============
+  const MODELO = 'openrouter/auto';
   const INTERVALO_MS = 5000;
-  // =========================================
+  let API_KEY = localStorage.getItem('__arKey') || '';
+  // ================================
 
   const respondidas = new Set();
   let ocupado = false;
@@ -28,8 +28,10 @@
     .replace(/\s+/g, ' ')
     .trim();
 
-  // ---------- OpenRouter (padrão) ----------
+  // ---------- OpenRouter ----------
   async function perguntarIA(pergunta, opcoes) {
+    if (!API_KEY) throw new Error('sem chave');
+
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -39,16 +41,8 @@
       body: JSON.stringify({
         model: MODELO,
         messages: [
-          {
-            role: 'system',
-            content: 'Responda questões de múltipla escolha retornando apenas o texto exato de uma das alternativas.'
-          },
-          {
-            role: 'user',
-            content:
-              'Pergunta: ' + pergunta + '\n\n' +
-              'Opções:\n' + opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n')
-          }
+          { role: 'system', content: 'Responda questões de múltipla escolha retornando apenas o texto exato de uma das alternativas.' },
+          { role: 'user', content: 'Pergunta: ' + pergunta + '\n\nOpções:\n' + opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n') }
         ]
       })
     });
@@ -139,14 +133,12 @@
     return true;
   }
 
-  // ---------- abrir pergunta ----------
+  // ---------- ações ----------
   function abrir() {
     const b = Array.from(document.querySelectorAll('button[aria-label="Pergunta"]')).find(visivel);
     if (b) { b.click(); return true; }
     return false;
   }
-
-  // ---------- virar página ----------
   function proxima() {
     const b = document.querySelector('#right-page-btn')
       || document.querySelector('.page-switch-overlay-icon.embedded.next');
@@ -154,7 +146,6 @@
     return false;
   }
 
-  // ---------- loop ----------
   async function loop() {
     if (ocupado || !ligado) return;
     ocupado = true;
@@ -163,11 +154,8 @@
       if (abrir()) return;
       if (proxima()) status('➡️ Página');
       else status('⏳ Aguardando');
-    } catch (e) {
-      console.warn('[AR]', e);
-    } finally {
-      ocupado = false;
-    }
+    } catch (e) { console.warn('[AR]', e); }
+    finally { ocupado = false; }
   }
 
   // ---------- UI ----------
@@ -178,16 +166,57 @@
 
   function ui() {
     if (document.getElementById('__arBox')) return;
+
     const box = document.createElement('div');
     box.id = '__arBox';
-    box.style.cssText = 'position:fixed;top:10px;right:10px;z-index:999999;background:#111;color:#eee;font:12px/1.4 system-ui,sans-serif;padding:8px 10px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.4);display:flex;gap:8px;align-items:center;cursor:move;user-select:none';
-    box.innerHTML =
-      '<button id="__arBtn" style="all:unset;padding:4px 10px;border-radius:6px;background:#0a0;color:#fff;font-weight:600;cursor:pointer">Iniciar</button>' +
-      '<span id="__arStatus" style="opacity:.8">Pronto</span>' +
-      '<button id="__arX" style="all:unset;cursor:pointer;opacity:.5;padding:0 4px">✕</button>';
+    box.style.cssText = [
+      'position:fixed', 'top:10px', 'right:10px', 'z-index:999999',
+      'background:#111', 'color:#eee',
+      'font:12px/1.4 system-ui,sans-serif',
+      'padding:8px 10px', 'border-radius:10px',
+      'box-shadow:0 4px 14px rgba(0,0,0,.4)',
+      'display:flex', 'flex-direction:column', 'gap:6px',
+      'cursor:move', 'user-select:none', 'min-width:220px'
+    ].join(';');
+
+    box.innerHTML = `
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="__arKey" type="password" placeholder="sk-or-v1-..."
+          style="flex:1;all:unset;background:#222;color:#eee;padding:4px 6px;border-radius:6px;font:11px monospace;min-width:0" />
+        <button id="__arSave" title="Salvar chave"
+          style="all:unset;cursor:pointer;padding:4px 8px;background:#333;border-radius:6px;font-size:11px">💾</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button id="__arBtn"
+          style="all:unset;padding:4px 10px;border-radius:6px;background:#0a0;color:#fff;font-weight:600;cursor:pointer">Iniciar</button>
+        <span id="__arStatus" style="opacity:.8;flex:1">Pronto</span>
+        <button id="__arX"
+          style="all:unset;cursor:pointer;opacity:.5;padding:0 4px">✕</button>
+      </div>
+    `;
     document.body.appendChild(box);
 
+    const keyInput = document.getElementById('__arKey');
+    keyInput.value = API_KEY;
+    keyInput.addEventListener('focus', () => keyInput.select());
+
+    document.getElementById('__arSave').onclick = () => {
+      API_KEY = keyInput.value.trim();
+      localStorage.setItem('__arKey', API_KEY);
+      status(API_KEY ? '🔑 Salva' : '⚠️ Vazia');
+      console.log('[AR] Chave salva.');
+    };
+
+    keyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('__arSave').click();
+    });
+
     document.getElementById('__arBtn').onclick = () => {
+      if (!API_KEY) {
+        status('⚠️ Cole a chave');
+        keyInput.focus();
+        return;
+      }
       ligado = !ligado;
       const b = document.getElementById('__arBtn');
       b.textContent = ligado ? 'Parar' : 'Iniciar';
@@ -210,9 +239,10 @@
       ligado = false;
     };
 
+    // arrastar
     let dx = 0, dy = 0, down = false;
     box.onmousedown = (e) => {
-      if (e.target.tagName === 'BUTTON') return;
+      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
       down = true;
       dx = e.clientX - box.offsetLeft;
       dy = e.clientY - box.offsetTop;
@@ -227,5 +257,5 @@
   }
 
   ui();
-  console.log('%c[AR] Pronto. Clique em Iniciar.', 'color:#0a0;font-weight:bold');
+  console.log('%c[AR] Pronto. Cole a chave e clique em Iniciar.', 'color:#0a0;font-weight:bold');
 })();
