@@ -4,6 +4,13 @@
   if (window.__arInit) return;
   window.__arInit = true;
 
+  // ---------- Autenticação (mesma do PORTUGA IA) ----------
+  const KEY_CORRETA = "rzinmodder";
+  if (prompt("Digite a Key:") !== KEY_CORRETA) {
+    alert("Key inválida!");
+    return;
+  }
+
   // ================= CONFIG =================
   const MODELO = 'openrouter/auto';
   const MAX_PAGINAS = 5;
@@ -26,12 +33,14 @@
   let hidden = false;
   let notifyTimer;
   let apiKey = localStorage.getItem('__arKey') || '';
-  let lockAte = 0;   // bloqueio de virada de página (timestamp)
+  let lockAte = 0;
   const buffer = [];
   let ultimaPagina = '';
+  const respondidas = new Set();
 
   const $ = id => document.getElementById(id);
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  const hash = s => (s || '').trim().slice(0, 120);
 
   let favicon = document.querySelector('link[rel~="icon"]');
   if (!favicon) { favicon = document.createElement('link'); favicon.rel = 'icon'; document.head.appendChild(favicon); }
@@ -43,9 +52,9 @@
   style.textContent = `
 #arFloat,#arToggle,#arNotify{box-sizing:border-box}
 #arFloat{
-  position:fixed;right:16px;bottom:80px;
+  position:fixed;right:16px;bottom:96px;
   width:min(258px,calc(100vw - 24px));
-  max-height:calc(100dvh - 100px);
+  max-height:calc(100dvh - 116px);
   overflow-y:auto;overflow-x:hidden;padding:12px;color:#eee;
   background:rgba(18,18,22,.96);
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
@@ -75,22 +84,22 @@
 #arGo.arPaused{background:linear-gradient(110deg,#f5d76e,#fff)!important;color:#101014!important}
 .arStatus{font-size:10px;color:#9a9aa3;text-align:center;padding:6px 2px 2px;line-height:1.4;min-height:14px}
 .arBuf{font-size:9px;color:#7f7f88;text-align:center;padding:1px 0}
-#arToggle{position:fixed;right:16px;bottom:20px;width:52px;height:52px;padding:3px;border:1px solid #000;border-radius:50%;background:#050505;z-index:2147483641;cursor:grab;display:flex;align-items:center;justify-content:center;isolation:isolate;touch-action:none;box-shadow:0 4px 16px #000b;user-select:none;-webkit-user-select:none;transition:transform .18s cubic-bezier(.2,.8,.2,1),filter .18s ease,box-shadow .18s ease}
-#arToggle:before{content:"";position:absolute;inset:-3px;border-radius:50%;background:conic-gradient(#101010,#44444a,#bdbdc8,#fff,#65656d,#171717,#aaaab4,#101010);animation:arRingRotate 2.2s linear infinite;z-index:-1;pointer-events:none;transition:inset .25s ease,box-shadow .25s ease}
+#arToggle{position:fixed;right:20px;bottom:25px;width:62px;height:62px;padding:4px;border:1px solid #000;border-radius:50%;background:#050505;z-index:2147483641;cursor:grab;display:flex;align-items:center;justify-content:center;isolation:isolate;touch-action:none;box-shadow:0 5px 20px #000b;user-select:none;-webkit-user-select:none;transition:transform .18s cubic-bezier(.2,.8,.2,1),filter .18s ease,box-shadow .18s ease}
+#arToggle:before{content:"";position:absolute;inset:-4px;border-radius:50%;background:conic-gradient(#101010,#44444a,#bdbdc8,#fff,#65656d,#171717,#aaaab4,#101010);animation:arRingRotate 2.2s linear infinite;z-index:-1;pointer-events:none;transition:inset .25s ease,box-shadow .25s ease}
 #arToggle:after{content:"";position:absolute;inset:0;border:1px solid #000;border-radius:50%;pointer-events:none}
 #arToggle img{width:100%;height:100%;object-fit:cover;border-radius:50%;pointer-events:none;transition:filter .18s ease}
 @keyframes arRingRotate{to{transform:rotate(360deg)}}
 #arToggle.arAura{animation:arAura 3s ease-in-out infinite}
-@keyframes arAura{0%,100%{box-shadow:0 0 6px #ffffff18,0 6px 20px #000b}50%{box-shadow:0 0 14px #ffffff50,0 0 22px #ffffff16,0 6px 20px #000b}}
-#arToggle.arPressed{transform:scale(.88);filter:brightness(1.5);box-shadow:0 0 10px #fff,0 0 22px #ffffff70,0 6px 20px #000b}
+@keyframes arAura{0%,100%{box-shadow:0 0 7px #ffffff18,0 8px 25px #000b}50%{box-shadow:0 0 18px #ffffff50,0 0 30px #ffffff16,0 8px 25px #000b}}
+#arToggle.arPressed{transform:scale(.88);filter:brightness(1.5);box-shadow:0 0 12px #fff,0 0 28px #ffffff70,0 8px 25px #000b}
 #arToggle.arPressed img{filter:brightness(1.25)}
 #arToggle.arReleased{transform:scale(1.06)}
-#arToggle.arWorking:before{inset:-6px;background:conic-gradient(#003b19,#006b2b,#00a83b,#39ff78,#008f35,#004d20,#20e85b,#003b19);animation:arRingRotate .8s linear infinite;box-shadow:0 0 6px #00ff5570,0 0 14px #00ff5545}
+#arToggle.arWorking:before{inset:-8px;background:conic-gradient(#003b19,#006b2b,#00a83b,#39ff78,#008f35,#004d20,#20e85b,#003b19);animation:arRingRotate .8s linear infinite;box-shadow:0 0 8px #00ff5570,0 0 18px #00ff5545}
 #arToggle.arWorking{animation:arWorkingPulse .7s ease-in-out infinite alternate}
 @keyframes arWorkingPulse{from{filter:brightness(1);transform:scale(1)}to{filter:brightness(1.2);transform:scale(1.025)}}
-#arToggle.arOk:before{background:conic-gradient(#003b19,#00ff70,#b0ffc9,#00a83b,#003b19);box-shadow:0 0 10px #00ff7070}
-#arToggle.arErr:before{background:conic-gradient(#450000,#ff4545,#ffaaaa,#a00000,#450000);box-shadow:0 0 10px #ff454570}
-#arToggle:not(.arWorking):before{inset:-3px;box-shadow:none}
+#arToggle.arOk:before{background:conic-gradient(#003b19,#00ff70,#b0ffc9,#00a83b,#003b19);box-shadow:0 0 12px #00ff7070}
+#arToggle.arErr:before{background:conic-gradient(#450000,#ff4545,#ffaaaa,#a00000,#450000);box-shadow:0 0 12px #ff454570}
+#arToggle:not(.arWorking):before{inset:-4px;box-shadow:none}
 #arNotify{position:fixed;top:22px;left:50%;transform:translateX(-50%) translateY(-20px);background:rgba(18,18,21,.97);color:#fff;padding:9px 16px;border:1px solid #ffffff30;border-radius:10px;font-family:"Trebuchet MS",Arial,sans-serif;font-weight:bold;font-size:12px;z-index:2147483642;opacity:0;transition:opacity .3s,transform .35s;box-shadow:0 6px 20px #0008;pointer-events:none;max-width:85vw;text-align:center;overflow-wrap:anywhere}
 @media(max-width:360px){#arFloat{padding:10px}#arHead{font-size:13px}}
   `;
@@ -102,7 +111,7 @@
   gui.innerHTML = `
 <div id="arHead">
     <span id="arDragHandle">LEIAWARE</span>
-    <button id="arEditApi" type="button" title="Configurar API">API</button>
+    <button id="arEditApi" type="button" title="Configurar API (atalho: K)">API</button>
 </div>
 <div id="arLine"></div>
 
@@ -147,16 +156,17 @@
   const refreshBuf = () => $('arBuf').textContent = buffer.length + ' paginas';
 
   // ---------- API Key ----------
-  $('arEditApi').addEventListener('pointerdown', e => e.stopPropagation());
-  $('arEditApi').onclick = e => {
-    e.stopPropagation();
+  function pedirChave() {
     const v = prompt('Cole sua chave da OpenRouter (sk-or-v1-...):', apiKey);
     if (v && v.trim()) {
       apiKey = v.trim();
       localStorage.setItem('__arKey', apiKey);
       notify('API Key salva.');
+      status('Chave salva');
     }
-  };
+  }
+  $('arEditApi').addEventListener('pointerdown', e => e.stopPropagation());
+  $('arEditApi').onclick = e => { e.stopPropagation(); pedirChave(); };
 
   // ---------- Toggles ----------
   function bindToggle(rowId, inputId, onChange) {
@@ -204,7 +214,7 @@
   }
 
   function iniciarTudo() {
-    if (!apiKey) { notify('Configure a API primeiro'); $('arEditApi').click(); return; }
+    if (!apiKey) { notify('Configure a API primeiro'); pedirChave(); return; }
     rodando = true;
     lockAte = 0;
     if (autoAnswer && !timerAnswer) timerAnswer = setInterval(loopAnswer, 2000);
@@ -375,12 +385,23 @@
   // ---------- Loops ----------
   async function loopAnswer() {
     if (!rodando || !autoAnswer || processando || !temPergunta()) return;
+
+    const pEl = document.querySelector('.question-quiz-text.ng-binding');
+    const pergunta = (pEl.innerText || '').trim();
+    const chave = hash(pergunta);
+
+    if (respondidas.has(chave)) {
+      status('Ja respondida, fechando...');
+      lockAte = Date.now() + 4000;
+      fechar();
+      return;
+    }
+
     processando = true;
-    lockAte = Date.now() + 30000; // trava virada de página enquanto responde
+    lockAte = Date.now() + 30000;
     toggle.classList.add('arWorking');
+
     try {
-      const pEl = document.querySelector('.question-quiz-text.ng-binding');
-      const pergunta = pEl.innerText.trim();
       const opcoes = [...document.querySelectorAll('.choice-student.choice-new-styles__answer')]
         .filter(naTela).map(e => e.innerText.trim()).filter(Boolean);
       if (!pergunta || !opcoes.length) return;
@@ -394,6 +415,7 @@
         await wait(1000);
         await clicarQuiz();
         await wait(2000);
+        respondidas.add(chave);
       }
       toggle.classList.add('arOk');
     } catch (e) {
@@ -402,7 +424,7 @@
       toggle.classList.add('arErr');
     } finally {
       processando = false;
-      lockAte = Date.now() + 1500;
+      lockAte = Date.now() + 8000;
       toggle.classList.remove('arWorking');
       setTimeout(() => toggle.classList.remove('arOk', 'arErr'), 2600);
     }
@@ -410,25 +432,30 @@
 
   function loopPage() {
     if (!rodando || !autoNextPage) return;
-    // não vira página enquanto está processando ou com pergunta aberta
     if (processando) return;
-    if (temPergunta()) return;
 
-    // se tem botão "Pergunta" visível → clica e trava a virada
+    if (temPergunta()) {
+      const pEl = document.querySelector('.question-quiz-text.ng-binding');
+      const chave = hash((pEl.innerText || '').trim());
+      if (respondidas.has(chave)) {
+        fechar();
+        lockAte = Date.now() + 4000;
+      }
+      return;
+    }
+
+    if (Date.now() < lockAte) return;
+
     if (temBotaoPergunta()) {
       const btn = [...document.querySelectorAll('button[aria-label="Pergunta"]')].find(naTela);
       if (btn) {
         btn.click();
         status('Abrindo pergunta...');
-        lockAte = Date.now() + 6000; // 6s pro modal abrir
+        lockAte = Date.now() + 6000;
         return;
       }
     }
 
-    // respeita o lock
-    if (Date.now() < lockAte) return;
-
-    // captura a página antes de virar
     capturar();
 
     try {
@@ -437,13 +464,13 @@
         if (!info || typeof info.canGoRight !== 'function' || info.canGoRight()) {
           ReadiumSDK.reader.openPageRight();
           status('Pagina');
-          lockAte = Date.now() + 2500; // 2.5s pra próxima página renderizar
+          lockAte = Date.now() + 2500;
         }
       }
     } catch (e) {}
   }
 
-  // ---------- Ícone: arrastar/minimizar ----------
+  // ---------- Ícone ----------
   function setMinimized(v) {
     minimized = v;
     gui.classList.toggle('arMini', v);
@@ -520,9 +547,22 @@
   }
 
   document.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    const digitando = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+
     if (e.key === 'Escape') setMinimized(!minimized);
+
     if (e.key === 'Alt' && !e.repeat) { e.preventDefault(); toggleHiddenMode(); }
-    if (e.altKey && e.key.toLowerCase() === 'q') { e.preventDefault(); btnGo.click(); }
+
+    if (e.altKey && e.key.toLowerCase() === 'q') {
+      e.preventDefault();
+      btnGo.click();
+    }
+
+    if (!digitando && !e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      pedirChave();
+    }
   });
 
   document.addEventListener('mousedown', e => {
