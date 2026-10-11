@@ -28,10 +28,14 @@
     .replace(/\s+/g, ' ')
     .trim();
 
+  const acharBotao = (texto) => Array.from(document.querySelectorAll('button'))
+    .find(b => new RegExp('^\\s*' + texto + '\\s*$', 'i').test(b.innerText || '') && visivel(b) && !b.disabled);
+
+  const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+
   // ---------- OpenRouter ----------
   async function perguntarIA(pergunta, opcoes) {
     if (!API_KEY) throw new Error('sem chave');
-
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -46,13 +50,12 @@
         ]
       })
     });
-
     if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
     const data = await res.json();
     return (data.choices?.[0]?.message?.content || '').trim();
   }
 
-  // ---------- detectar pergunta ----------
+  // ---------- detectar pergunta aberta ----------
   function detectarPergunta() {
     const radios = Array.from(document.querySelectorAll('md-radio-button.choice-radio-button'))
       .filter(visivel);
@@ -67,7 +70,6 @@
     if (!container) container = document.body;
 
     const linhas = (container.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
-
     let qIdx = linhas.findIndex(l => /^\d+\.-/.test(l));
     if (qIdx < 0) {
       let m = -1, t = 0;
@@ -83,14 +85,21 @@
       if (/^(Tentativas|Terminar|Bloco|Teste)/i.test(l)) break;
       opcoes.push(l.replace(/^[“”"']+|[“”"']+$/g, '').trim());
     }
-
     const botaoTerminar = Array.from(container.querySelectorAll('button'))
       .find(b => /^\s*terminar\s*$/i.test(b.innerText || ''));
-
     return { pergunta, opcoes, radios, botaoTerminar };
   }
 
-  // ---------- responder ----------
+  // ---------- tela de pontuação (2ª etapa) ----------
+  function detectarTelaEnviar() {
+    // aparece depois de clicar em TERMINAR: "Sua pontuação atual é: ... ENVIAR"
+    const temEnviar = acharBotao('enviar');
+    const temPontuacao = /Sua pontuação atual/i.test(document.body.innerText || '');
+    if (temEnviar && temPontuacao) return temEnviar;
+    return null;
+  }
+
+  // ---------- responder (fluxo completo) ----------
   async function responder() {
     const q = detectarPergunta();
     if (!q) return false;
@@ -114,16 +123,38 @@
         return true;
       }
 
+      // 1) marca a opção
       q.radios[idx].click();
-      await new Promise(r => setTimeout(r, 700));
+      await esperar(700);
 
+      // 2) clica TERMINAR
       const terminar = q.botaoTerminar
         || Array.from(document.querySelectorAll('button'))
              .find(b => /^\s*terminar\s*$/i.test(b.innerText || '') && visivel(b));
+      if (terminar && !terminar.disabled) {
+        terminar.click();
+        status('📤 Terminar...');
+      } else {
+        status('⚠️ Terminar indisponível');
+        respondidas.add(chave);
+        return true;
+      }
 
-      if (terminar && !terminar.disabled) terminar.click();
+      // 3) espera a tela de pontuação e clica ENVIAR
+      let enviar = null;
+      for (let i = 0; i < 10; i++) {
+        await esperar(300);
+        enviar = detectarTelaEnviar();
+        if (enviar) break;
+      }
 
-      status('✅ ' + (idx + 1) + '/' + q.radios.length);
+      if (enviar) {
+        enviar.click();
+        status('✅ ' + (idx + 1) + '/' + q.radios.length);
+      } else {
+        status('⚠️ Botão Enviar não apareceu');
+      }
+
       respondidas.add(chave);
     } catch (e) {
       console.warn('[AR]', e);
@@ -150,6 +181,10 @@
     if (ocupado || !ligado) return;
     ocupado = true;
     try {
+      // Se a tela de pontuação está aberta, clica ENVIAR direto
+      const enviar = detectarTelaEnviar();
+      if (enviar) { enviar.click(); status('📤 Enviar'); return; }
+
       if (await responder()) return;
       if (abrir()) return;
       if (proxima()) status('➡️ Página');
@@ -166,19 +201,15 @@
 
   function ui() {
     if (document.getElementById('__arBox')) return;
-
     const box = document.createElement('div');
     box.id = '__arBox';
     box.style.cssText = [
-      'position:fixed', 'top:10px', 'right:10px', 'z-index:999999',
-      'background:#111', 'color:#eee',
-      'font:12px/1.4 system-ui,sans-serif',
-      'padding:8px 10px', 'border-radius:10px',
-      'box-shadow:0 4px 14px rgba(0,0,0,.4)',
-      'display:flex', 'flex-direction:column', 'gap:6px',
-      'cursor:move', 'user-select:none', 'min-width:220px'
+      'position:fixed','top:10px','right:10px','z-index:999999',
+      'background:#111','color:#eee','font:12px/1.4 system-ui,sans-serif',
+      'padding:8px 10px','border-radius:10px','box-shadow:0 4px 14px rgba(0,0,0,.4)',
+      'display:flex','flex-direction:column','gap:6px',
+      'cursor:move','user-select:none','min-width:220px'
     ].join(';');
-
     box.innerHTML = `
       <div style="display:flex;gap:6px;align-items:center">
         <input id="__arKey" type="password" placeholder="sk-or-v1-..."
@@ -204,19 +235,13 @@
       API_KEY = keyInput.value.trim();
       localStorage.setItem('__arKey', API_KEY);
       status(API_KEY ? '🔑 Salva' : '⚠️ Vazia');
-      console.log('[AR] Chave salva.');
     };
-
     keyInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') document.getElementById('__arSave').click();
     });
 
     document.getElementById('__arBtn').onclick = () => {
-      if (!API_KEY) {
-        status('⚠️ Cole a chave');
-        keyInput.focus();
-        return;
-      }
+      if (!API_KEY) { status('⚠️ Cole a chave'); keyInput.focus(); return; }
       ligado = !ligado;
       const b = document.getElementById('__arBtn');
       b.textContent = ligado ? 'Parar' : 'Iniciar';
@@ -239,7 +264,6 @@
       ligado = false;
     };
 
-    // arrastar
     let dx = 0, dy = 0, down = false;
     box.onmousedown = (e) => {
       if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
@@ -257,5 +281,5 @@
   }
 
   ui();
-  console.log('%c[AR] Pronto. Cole a chave e clique em Iniciar.', 'color:#0a0;font-weight:bold');
+  console.log('%c[AR] Pronto. Fluxo: responder → TERMINAR → ENVIAR.', 'color:#0a0;font-weight:bold');
 })();
