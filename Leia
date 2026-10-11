@@ -1,36 +1,119 @@
 (function autoAvancar() {
-    // Se já está rodando, para
-    if (window.__autoTimer) {
-        clearInterval(window.__autoTimer);
-        window.__autoTimer = null;
-        console.log('⏹ Auto-avançar PARADO');
-        return;
-    }
+    // Se já está rodando, para (toggle)
+    if (window.__autoUI) { window.__autoUI.parar(); return; }
 
     const SEGUNDOS = 5;
     const INTERVALO = SEGUNDOS * 1000;
 
-    console.log(`▶ Auto-avançar INICIADO (${SEGUNDOS}s por página)`);
-    console.log('Rode o script de novo pra parar.');
+    // ===================== PAINEL VISÍVEL =====================
+    const painel = document.createElement('div');
+    painel.style.cssText = `
+        position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
+        background: #1a1a1a; color: #fff;
+        font: 13px/1.4 system-ui, sans-serif;
+        padding: 14px 18px; border-radius: 10px;
+        box-shadow: 0 6px 25px rgba(0,0,0,.6);
+        min-width: 190px; user-select: none;
+    `;
+    painel.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="width:10px;height:10px;background:#4caf50;border-radius:50%;
+                         animation:pulse 1s infinite;"></span>
+            <strong>Auto-avançar</strong>
+        </div>
+        <div id="__contador" style="font-size:34px;font-weight:bold;text-align:center;
+                                    color:#4caf50;margin:6px 0;font-variant-numeric:tabular-nums;">
+            5
+        </div>
+        <div style="font-size:11px;color:#888;text-align:center;margin-bottom:10px;">
+            Páginas viradas: <span id="__total" style="color:#fff;font-weight:bold;">0</span>
+        </div>
+        <button id="__btnParar" style="
+            width:100%; background:#e91e63; color:#fff; border:0;
+            padding:9px; border-radius:6px;
+            font:bold 12px sans-serif; cursor:pointer;
+        ">⏹ PARAR</button>
+        <style>
+            @keyframes pulse {
+                0%,100% { opacity:1; transform:scale(1); }
+                50%     { opacity:.4; transform:scale(1.3); }
+            }
+        </style>
+    `;
+    document.body.appendChild(painel);
 
-    window.__autoTimer = setInterval(() => {
-        // Tenta os seletores do Odilo (overlay de próxima página)
-        let botao =
-            document.querySelector('.page-switch-overlay-icon.embedded.next') ||
-            document.querySelector('[ng-click*="goToNextPage"]') ||
-            document.querySelector('#left-page-btn + button') ||
-            document.querySelector('button[aria-label="Próximo"]');
+    const elContador = painel.querySelector('#__contador');
+    const elTotal    = painel.querySelector('#__total');
 
-        if (botao && botao.offsetParent !== null) {
-            botao.click();
-            console.log(`➡ Página avançada (${new Date().toLocaleTimeString()})`);
-        } else {
-            // Fallback: simula seta direita no teclado
-            document.dispatchEvent(new KeyboardEvent('keydown', {
-                key: 'ArrowRight', code: 'ArrowRight',
-                keyCode: 39, which: 39, bubbles: true
-            }));
-            console.log('➡ Seta direita enviada (fallback)');
+    let contador = SEGUNDOS;
+    let paginasViradas = 0;
+
+    // ===================== FUNÇÃO QUE VIRA A PÁGINA =====================
+    function avancarPagina() {
+        // 1) Tenta chamar goToNextPage() direto no scope do Angular
+        try {
+            const alvo = document.querySelector('[ng-click*="goToNextPage"]')
+                      || document.querySelector('.page-switch-overlay-icon.next');
+            if (alvo && window.angular) {
+                let s = angular.element(alvo).scope();
+                // sobe na hierarquia até achar a função
+                let nivel = 0;
+                while (s && typeof s.goToNextPage !== 'function' && nivel < 12) {
+                    s = s.$parent; nivel++;
+                }
+                if (s && typeof s.goToNextPage === 'function') {
+                    s.$apply(() => s.goToNextPage());
+                    return true;
+                }
+            }
+        } catch (e) { /* ignora */ }
+
+        // 2) Fallback: clica no overlay de próxima página
+        const btn = document.querySelector('.page-switch-overlay-icon.embedded.next');
+        if (btn && btn.offsetParent !== null) {
+            btn.click();
+            return true;
         }
+
+        // 3) Fallback final: simula seta direita do teclado
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'ArrowRight', code: 'ArrowRight',
+            keyCode: 39, which: 39, bubbles: true
+        }));
+        document.dispatchEvent(new KeyboardEvent('keyup', {
+            key: 'ArrowRight', code: 'ArrowRight',
+            keyCode: 39, which: 39, bubbles: true
+        }));
+        return false;
+    }
+
+    // ===================== CONTADOR VISUAL (1s) =====================
+    const tickVisual = setInterval(() => {
+        contador--;
+        if (contador < 0) contador = SEGUNDOS;
+        elContador.textContent = contador;
+    }, 1000);
+
+    // ===================== AÇÃO (a cada X s) =====================
+    const timerAcao = setInterval(() => {
+        const ok = avancarPagina();
+        paginasViradas++;
+        elTotal.textContent = paginasViradas;
+        elContador.textContent = SEGUNDOS;
+        contador = SEGUNDOS;
+        console.log(`➡ Página ${paginasViradas} virada (${ok ? 'ok' : 'via teclado'})`);
     }, INTERVALO);
+
+    // ===================== PARAR =====================
+    function parar() {
+        clearInterval(timerAcao);
+        clearInterval(tickVisual);
+        painel.remove();
+        window.__autoUI = null;
+        console.log('⏹ Auto-avançar parado. Total:', paginasViradas);
+    }
+    painel.querySelector('#__btnParar').onclick = parar;
+
+    window.__autoUI = { parar };
+    console.log(`▶ Auto-avançar iniciado — ${SEGUNDOS}s por página`);
 })();
