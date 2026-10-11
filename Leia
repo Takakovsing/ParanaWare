@@ -520,4 +520,4 @@
     window.__PORTUGA_IA = { destroy };
 
     readPage();
-})(); 
+})();
