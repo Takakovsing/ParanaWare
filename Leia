@@ -320,4 +320,4 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
 
     setModo('folheando');
     loopPrincipal();
-})();
+})(); 
