@@ -297,4 +297,4 @@ javascript:(async function autoReaderFinal() {
         console.error(e);
         status("Erro: " + e.message);
     }
-})();
+})(); 
