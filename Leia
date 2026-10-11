@@ -5,10 +5,14 @@
   // ============ CONFIG ============
   const MODELO = 'openrouter/auto';
   const INTERVALO_MS = 5000;
+  const MAX_PAGINAS = 4;        // quantas páginas manter no contexto
+  const MAX_CHARS_PAGINA = 1500; // corta páginas muito longas
   let API_KEY = localStorage.getItem('__arKey') || '';
   // ================================
 
   const respondidas = new Set();
+  const bufferPaginas = [];     // histórico de páginas lidas
+  let ultimaPaginaLida = '';
   let ocupado = false;
   let ligado = false;
   let timer = null;
@@ -21,21 +25,72 @@
     const s = getComputedStyle(el);
     return s.display !== 'none' && s.visibility !== 'hidden';
   };
-
-  const limpar = (s) => s
-    .toLowerCase()
-    .replace(/[“”"'`´]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const limpar = (s) => s.toLowerCase().replace(/[“”"'`´]/g, '').replace(/\s+/g, ' ').trim();
+  const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 
   const acharBotao = (texto) => Array.from(document.querySelectorAll('button'))
     .find(b => new RegExp('^\\s*' + texto + '\\s*$', 'i').test(b.innerText || '') && visivel(b) && !b.disabled);
 
-  const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+  // ---------- LEITURA DE PÁGINA ----------
+  function lerPagina() {
+    // clona o body e remove tudo que é UI
+    const clone = document.body.cloneNode(true);
+    clone.querySelectorAll(
+      'button, input, select, md-icon, svg, ' +
+      'md-dialog, md-backdrop, .md-dialog-container, ' +
+      '[class*="controls"], [class*="toolbar"], [class*="tooltip"], ' +
+      '[class*="overlay"], [class*="switch-overlay"], ' +
+      '.step-wizard, .finish-btn, .md-icon-button, ' +
+      '[class*="header"], [class*="footer"], [class*="sidebar"], ' +
+      '[class*="tts"], [class*="toast"]'
+    ).forEach(e => e.remove());
+
+    let txt = (clone.innerText || '')
+      .split('\n').map(s => s.trim()).filter(Boolean).join('\n');
+
+    // remove linhas que são claramente UI/metadados do leitor
+    txt = txt.split('\n')
+      .filter(l => !/^\d+%$/.test(l))
+      .filter(l => !/^\d+x$/.test(l))
+      .filter(l => !/páginas? para terminar/i.test(l))
+      .filter(l => !/^As aventuras de Mike/i.test(l))
+      .filter(l => l.length > 2)
+      .join('\n')
+      .trim();
+
+    return txt;
+  }
+
+  function atualizarBuffer() {
+    if (detectarPergunta() || detectarTelaEnviar()) return;
+    const txt = lerPagina();
+    if (!txt || txt.length < 40) return;
+    if (txt === ultimaPaginaLida) return;
+
+    ultimaPaginaLida = txt;
+    bufferPaginas.push(txt.slice(0, MAX_CHARS_PAGINA));
+    if (bufferPaginas.length > MAX_PAGINAS) bufferPaginas.shift();
+
+    console.log('%c[AR] Página lida (' + txt.length + ' chars). Buffer: ' + bufferPaginas.length,
+      'color:#888');
+    status('📖 ' + bufferPaginas.length + ' pág.');
+  }
 
   // ---------- OpenRouter ----------
-  async function perguntarIA(pergunta, opcoes) {
+  async function perguntarIA(pergunta, opcoes, contexto) {
     if (!API_KEY) throw new Error('sem chave');
+
+    const ctx = contexto && contexto.length
+      ? 'Contexto do livro (últimas páginas lidas):\n"""\n' +
+        contexto.join('\n---\n') +
+        '\n"""\n\n'
+      : '';
+
+    const prompt =
+      ctx +
+      'Pergunta: ' + pergunta + '\n\n' +
+      'Opções:\n' + opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n');
+
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -45,8 +100,8 @@
       body: JSON.stringify({
         model: MODELO,
         messages: [
-          { role: 'system', content: 'Responda questões de múltipla escolha retornando apenas o texto exato de uma das alternativas.' },
-          { role: 'user', content: 'Pergunta: ' + pergunta + '\n\nOpções:\n' + opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n') }
+          { role: 'system', content: 'Você responde questões de múltipla escolha sobre um livro. Use o contexto fornecido. Retorne apenas o texto exato de uma das alternativas.' },
+          { role: 'user', content: prompt }
         ]
       })
     });
@@ -55,7 +110,7 @@
     return (data.choices?.[0]?.message?.content || '').trim();
   }
 
-  // ---------- detectar pergunta aberta ----------
+  // ---------- detectar pergunta ----------
   function detectarPergunta() {
     const radios = Array.from(document.querySelectorAll('md-radio-button.choice-radio-button'))
       .filter(visivel);
@@ -90,16 +145,14 @@
     return { pergunta, opcoes, radios, botaoTerminar };
   }
 
-  // ---------- tela de pontuação (2ª etapa) ----------
+  // ---------- tela de pontuação ----------
   function detectarTelaEnviar() {
-    // aparece depois de clicar em TERMINAR: "Sua pontuação atual é: ... ENVIAR"
-    const temEnviar = acharBotao('enviar');
+    const enviar = acharBotao('enviar');
     const temPontuacao = /Sua pontuação atual/i.test(document.body.innerText || '');
-    if (temEnviar && temPontuacao) return temEnviar;
-    return null;
+    return (enviar && temPontuacao) ? enviar : null;
   }
 
-  // ---------- responder (fluxo completo) ----------
+  // ---------- fluxo completo de responder ----------
   async function responder() {
     const q = detectarPergunta();
     if (!q) return false;
@@ -110,7 +163,7 @@
     status('🤔 Pensando...');
 
     try {
-      const resp = await perguntarIA(q.pergunta, q.opcoes);
+      const resp = await perguntarIA(q.pergunta, q.opcoes, bufferPaginas);
       const alvo = limpar(resp);
 
       let idx = q.opcoes.findIndex(o => limpar(o) === alvo);
@@ -123,39 +176,46 @@
         return true;
       }
 
-      // 1) marca a opção
+      // 1) marca opção
       q.radios[idx].click();
       await esperar(700);
 
-      // 2) clica TERMINAR
+      // 2) TERMINAR
       const terminar = q.botaoTerminar
         || Array.from(document.querySelectorAll('button'))
              .find(b => /^\s*terminar\s*$/i.test(b.innerText || '') && visivel(b));
-      if (terminar && !terminar.disabled) {
-        terminar.click();
-        status('📤 Terminar...');
-      } else {
+      if (!terminar || terminar.disabled) {
         status('⚠️ Terminar indisponível');
         respondidas.add(chave);
         return true;
       }
+      terminar.click();
+      status('📤 Terminar...');
 
-      // 3) espera a tela de pontuação e clica ENVIAR
+      // 3) espera tela pontuação e clica ENVIAR
       let enviar = null;
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 15; i++) {
         await esperar(300);
         enviar = detectarTelaEnviar();
         if (enviar) break;
       }
-
       if (enviar) {
         enviar.click();
-        status('✅ ' + (idx + 1) + '/' + q.radios.length);
+        status('✅ Enviado');
       } else {
-        status('⚠️ Botão Enviar não apareceu');
+        status('⚠️ Enviar não apareceu');
       }
 
       respondidas.add(chave);
+
+      // 4) espera o modal fechar (radios somem) pra liberar a navegação
+      for (let i = 0; i < 20; i++) {
+        await esperar(300);
+        const aindaAberto = document.querySelectorAll('md-radio-button.choice-radio-button').length > 0
+          || detectarTelaEnviar();
+        if (!aindaAberto) break;
+      }
+      status('➡️ Próxima...');
     } catch (e) {
       console.warn('[AR]', e);
       status('❌ ' + e.message);
@@ -177,15 +237,21 @@
     return false;
   }
 
+  // ---------- loop ----------
   async function loop() {
     if (ocupado || !ligado) return;
     ocupado = true;
     try {
       // Se a tela de pontuação está aberta, clica ENVIAR direto
       const enviar = detectarTelaEnviar();
-      if (enviar) { enviar.click(); status('📤 Enviar'); return; }
+      if (enviar) { enviar.click(); status('📤 Enviar'); await esperar(1200); return; }
 
+      // Se o modal de pergunta está aberto, responde
       if (await responder()) return;
+
+      // Se nenhum modal está aberto, captura a página atual e depois avança
+      atualizarBuffer();
+
       if (abrir()) return;
       if (proxima()) status('➡️ Página');
       else status('⏳ Aguardando');
@@ -208,7 +274,7 @@
       'background:#111','color:#eee','font:12px/1.4 system-ui,sans-serif',
       'padding:8px 10px','border-radius:10px','box-shadow:0 4px 14px rgba(0,0,0,.4)',
       'display:flex','flex-direction:column','gap:6px',
-      'cursor:move','user-select:none','min-width:220px'
+      'cursor:move','user-select:none','min-width:230px'
     ].join(';');
     box.innerHTML = `
       <div style="display:flex;gap:6px;align-items:center">
@@ -224,6 +290,7 @@
         <button id="__arX"
           style="all:unset;cursor:pointer;opacity:.5;padding:0 4px">✕</button>
       </div>
+      <div id="__arBuf" style="opacity:.6;font-size:10px">📖 0 páginas no contexto</div>
     `;
     document.body.appendChild(box);
 
@@ -280,6 +347,12 @@
     document.addEventListener('mouseup', () => { down = false; });
   }
 
+  // atualiza o contador do buffer visualmente
+  setInterval(() => {
+    const el = document.getElementById('__arBuf');
+    if (el) el.textContent = '📖 ' + bufferPaginas.length + ' páginas no contexto';
+  }, 1500);
+
   ui();
-  console.log('%c[AR] Pronto. Fluxo: responder → TERMINAR → ENVIAR.', 'color:#0a0;font-weight:bold');
-})(); 
+  console.log('%c[AR] Pronto. Sistema de leitura ativo.', 'color:#0a0;font-weight:bold');
+})();
