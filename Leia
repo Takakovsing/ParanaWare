@@ -3,7 +3,7 @@
 
     // ============ CONFIG ============
     const SEGUNDOS_PAGINA = 5;
-    const MODELO          = 'openrouter/free';  // ← roteador automático
+    const MODELO          = 'openrouter/free';
     const AUTOSUBMIT      = true;
     const DELAY_CLIQUE    = 1500;
     const TIMEOUT_QUESTAO = 60000;
@@ -21,7 +21,7 @@
     painel.style.cssText = `
         position:fixed; bottom:20px; right:20px; z-index:2147483647;
         background:#1a1a1a; color:#fff; font:12px/1.45 system-ui,sans-serif;
-        padding:14px 16px; border-radius:10px; max-width:320px;
+        padding:14px 16px; border-radius:10px; max-width:330px;
         box-shadow:0 6px 25px rgba(0,0,0,.6); user-select:none;
     `;
     painel.innerHTML = `
@@ -36,18 +36,25 @@
              white-space:pre-wrap;margin-bottom:8px;min-height:32px;">
              Páginas: <span id="__total" style="color:#fff;font-weight:bold;">0</span>
         </div>
-        <div style="display:flex;gap:6px;">
-            <button id="__btnParar" style="flex:1;background:#e91e63;color:#fff;
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <button id="__btnRepetir" style="flex:2;background:#ff9800;color:#fff;
                 border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;
-                cursor:pointer;">⏹ PARAR</button>
-            <button id="__btnKey" style="background:#333;color:#fff;border:0;
+                cursor:pointer;">🔄 PERGUNTAR DE NOVO</button>
+            <button id="__btnKey" style="flex:1;background:#333;color:#fff;border:0;
                 padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;
                 cursor:pointer;">🔑</button>
         </div>
+        <button id="__btnParar" style="width:100%;background:#e91e63;color:#fff;
+            border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;
+            cursor:pointer;">⏹ PARAR</button>
         <style>
             @keyframes pulse{
                 0%,100%{opacity:1;transform:scale(1)}
                 50%{opacity:.4;transform:scale(1.3)}
+            }
+            @keyframes girar{
+                0%{transform:rotate(0deg)}
+                100%{transform:rotate(360deg)}
             }
         </style>
     `;
@@ -58,6 +65,7 @@
     const elContador = painel.querySelector('#__contador');
     const elTotal    = painel.querySelector('#__total');
     const elStatus   = painel.querySelector('#__status');
+    const btnRepetir = painel.querySelector('#__btnRepetir');
 
     let contador = SEGUNDOS_PAGINA;
     let paginasViradas = 0;
@@ -137,9 +145,16 @@
         return melhor;
     }
 
-    // ============ OPENROUTER (modelo padrão) ============
-    async function perguntarIA(pergunta, opcoes) {
+    // ============ OPENROUTER ============
+    async function perguntarIA(pergunta, opcoes, tentativa = 1) {
         const lista = opcoes.map((o, i) => `${i+1}. ${o}`).join('\n');
+        const variacoes = [
+            'Responda APENAS com o número da opção correta. Sem texto extra.',
+            'Analise com cuidado e responda APENAS com o número da opção correta. Sem explicações.',
+            'Pense passo a passo internamente e responda APENAS com o número da opção correta.'
+        ];
+        const instrucao = variacoes[Math.min(tentativa - 1, variacoes.length - 1)];
+
         const prompt =
 `Você responde questões de múltipla escolha em português.
 
@@ -149,7 +164,7 @@ ${pergunta}
 OPÇÕES:
 ${lista}
 
-Responda APENAS com o número da opção correta. Sem texto extra.`;
+${instrucao}`;
 
         const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
@@ -165,7 +180,7 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
                     { role: 'system', content: 'Responda apenas com um número.' },
                     { role: 'user', content: prompt }
                 ],
-                temperature: 0,
+                temperature: tentativa > 1 ? 0.3 : 0, // varia um pouco nas repetições
                 max_tokens: 20
             })
         });
@@ -182,7 +197,9 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
     }
 
     // ============ RESOLVER ============
-    async function resolverQuestao(container) {
+    let tentativaAtual = 1;
+
+    async function resolverQuestao(container, tentativa = 1) {
         setModo('resolvendo');
         try {
             const { pergunta, opcoes } = extrairQuestao(container);
@@ -191,9 +208,9 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
                 return false;
             }
 
-            elStatus.textContent = `🧠 "${pergunta.slice(0, 60)}..."`;
+            elStatus.textContent = `🧠 (tent. ${tentativa}) "${pergunta.slice(0, 50)}..."`;
 
-            const ia = await perguntarIA(pergunta, opcoes);
+            const ia = await perguntarIA(pergunta, opcoes, tentativa);
             const idx = ia.num - 1;
             if (isNaN(idx) || idx < 0 || idx >= opcoes.length) {
                 elStatus.textContent = `❌ IA respondeu "${ia.raw}"`;
@@ -201,8 +218,8 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
             }
 
             const textoOpcao = opcoes[idx];
-            elStatus.textContent = `✅ (${ia.num}) ${textoOpcao.slice(0, 50)}`;
-            log(`IA (${ia.modelo}) escolheu (${ia.num}): ${textoOpcao.slice(0, 80)}`);
+            elStatus.textContent = `✅ (${ia.num}) ${textoOpcao.slice(0, 45)}`;
+            log(`Tentativa ${tentativa} — IA (${ia.modelo}) escolheu (${ia.num}): ${textoOpcao.slice(0, 80)}`);
 
             const alvo = acharElementoPorTexto(textoOpcao, container);
             if (!alvo) {
@@ -228,7 +245,7 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
                 const btnT = acharBotaoTerminar();
                 if (btnT) {
                     btnT.click();
-                    elStatus.textContent = '📤 Enviado! Retomando...';
+                    elStatus.textContent = `📤 Enviado (tent. ${tentativa})!`;
                 } else {
                     elStatus.textContent = '⚠️ TERMINAR não achado';
                 }
@@ -243,17 +260,20 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
 
     // ============ LOOP ============
     let processandoQuestao = false;
+    let pedidoRepetir = false;
 
     async function loopPrincipal() {
         while (modo !== 'parado') {
             const container = acharContainerQuestao();
             if (container && !processandoQuestao) {
                 const textoAtual = (container.innerText || '').trim();
-                if (textoAtual !== ultimaQuestao || Date.now() - inicioQuestao > TIMEOUT_QUESTAO) {
+                if (textoAtual !== ultimaQuestao || Date.now() - inicioQuestao > TIMEOUT_QUESTAO || pedidoRepetir) {
                     ultimaQuestao = textoAtual;
                     inicioQuestao = Date.now();
                     processandoQuestao = true;
-                    await resolverQuestao(container);
+                    pedidoRepetir = false;
+                    await resolverQuestao(container, tentativaAtual);
+                    tentativaAtual = 1;
                     await sleep(ESPERA_POS_Q);
                     let t = 0;
                     while (acharContainerQuestao() && t < 20) { await sleep(500); t++; }
@@ -315,9 +335,28 @@ Responda APENAS com o número da opção correta. Sem texto extra.`;
         if (nova) { API_KEY = nova; localStorage.setItem('__or_key', nova); }
     };
 
+    // ============ BOTÃO PERGUNTAR DE NOVO ============
+    btnRepetir.onclick = () => {
+        const container = acharContainerQuestao();
+        if (!container) {
+            elStatus.textContent = '⚠️ Nenhuma questão na tela agora';
+            return;
+        }
+        if (processandoQuestao) {
+            elStatus.textContent = '⏳ Já estou resolvendo...';
+            return;
+        }
+        // Aumenta a tentativa (varia o prompt)
+        tentativaAtual++;
+        pedidoRepetir = true;
+        btnRepetir.style.transform = 'rotate(360deg)';
+        setTimeout(() => btnRepetir.style.transform = '', 400);
+        log(`🔄 Repetir solicitado (tentativa ${tentativaAtual})`);
+    };
+
     window.__autoIA = { parar };
     console.log('[AutoIA] Ativo. Modelo:', MODELO, '| Autosubmit:', AUTOSUBMIT);
 
     setModo('folheando');
     loopPrincipal();
-})(); 
+})();
