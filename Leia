@@ -1,541 +1,376 @@
-(async function autoReaderFinal() {
-    if (window.__autoIA) { window.__autoIA.parar(); return; }
 
-    // ===================== CONFIG =====================
-    const SEGUNDOS_PAGINA        = 5;
-    const RODADAS_VOTACAO        = 3;
-    const TENTATIVAS              = 4;
-    const DELAY_ANTES_CLIQUE     = 400;
-    const DELAY_VERIFICACAO      = 1500;
-    const DELAY_POS_TERMINAR     = 1200;
-    const TIMEOUT_QUESTAO        = 60000;
-    const ESPERA_POS_Q           = 2500;
-    const AUTOSUBMIT             = true;
-    const VERIFICAR_ANTES_ENVIAR = true;
-    const MAX_CHARS_CONTEXTO     = 12000;
-    const MAX_PAGINAS_GUARDADAS  = 40;
-
-    // ===================== API KEY =====================
-    let API_KEY = localStorage.getItem('__or_key');
-    if (!API_KEY) {
-        API_KEY = prompt('Cole sua chave da OpenRouter (sk-or-v1-...):');
-        if (!API_KEY) return;
-        localStorage.setItem('__or_key', API_KEY);
+(async function PORTUGA_IA() {
+    if (window.__PORTUGA_IA) {
+        window.__PORTUGA_IA.destroy();
+        return;
     }
 
-    // ===================== MEMÓRIA DE PÁGINAS =====================
-    const memoria = { paginas: [], ultimoHash: '', charsTotal: 0 };
+    const ID = "__portuga_ia_panel";
+    const state = {
+        pages: [],
+        hash: "",
+        key: sessionStorage.getItem("__portuga_or_key") || "",
+        timer: null,
+        busy: false,
+        minimized: false
+    };
 
-    function hashPagina(txt) {
-        const t = txt.trim();
-        return t.length + '|' + t.slice(0, 100) + '|' + t.slice(-100);
+    const old = document.getElementById(ID);
+    if (old) old.remove();
+
+    const panel = document.createElement("div");
+    panel.id = ID;
+    panel.style.cssText = `
+        position:fixed;right:12px;bottom:12px;
+        width:min(360px,calc(100vw - 24px));
+        max-height:82vh;overflow:auto;z-index:2147483647;
+        background:rgba(12,13,17,.97);color:#f5f5f7;
+        border:1px solid #373943;border-radius:17px;
+        box-shadow:0 12px 55px #000b;
+        font:13px/1.5 system-ui,sans-serif;
+        backdrop-filter:blur(18px);
+    `;
+
+    panel.innerHTML = `
+        <div id="head" style="
+            padding:14px;display:flex;align-items:center;
+            gap:9px;cursor:move;background:linear-gradient(110deg,#242630,#101116);
+            border-bottom:1px solid #343640;touch-action:none">
+            <span style="font-size:22px">🕸️</span>
+            <div style="flex:1">
+                <b style="font-size:15px;letter-spacing:1px">
+                    PORTUGA <span style="color:#aaa">IA</span>
+                </b>
+                <div style="font-size:10px;color:#aaa">
+                    REDAÇÃO PARANÁ • READER
+                </div>
+            </div>
+            <button id="min">—</button>
+            <button id="close">×</button>
+        </div>
+
+        <div id="body" style="padding:14px">
+            <div id="status" style="color:#ccc;margin-bottom:12px">
+                Leitor inicializando...
+            </div>
+
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+                <div style="flex:1;background:#202128;padding:10px;border-radius:10px">
+                    <small style="color:#aaa">PÁGINAS</small>
+                    <div id="pages" style="font-size:22px;font-weight:bold">0</div>
+                </div>
+                <div style="flex:1;background:#202128;padding:10px;border-radius:10px">
+                    <small style="color:#aaa">MEMÓRIA</small>
+                    <div id="chars" style="font-size:22px;font-weight:bold">0</div>
+                </div>
+            </div>
+
+            <textarea id="question" placeholder="Escreva sua pergunta para a IA..."
+                style="box-sizing:border-box;width:100%;height:80px;
+                resize:vertical;background:#191a20;color:white;
+                border:1px solid #41434e;border-radius:10px;
+                padding:10px;font:13px system-ui"></textarea>
+
+            <button id="ask" class="main">
+                ✦ ANALISAR COM IA
+            </button>
+
+            <div class="buttons">
+                <button id="read">↻ LER AGORA</button>
+                <button id="key">⚙ API KEY</button>
+                <button id="clear">⌫ LIMPAR MEMÓRIA</button>
+                <button id="copy">▣ COPIAR TEXTO</button>
+            </div>
+
+            <div id="result" style="
+                display:none;white-space:pre-wrap;overflow-wrap:anywhere;
+                margin-top:12px;padding:11px;border:1px solid #333540;
+                background:#17181e;border-radius:10px;max-height:230px;overflow:auto">
+            </div>
+
+            <div style="margin-top:10px;font-size:10px;color:#888">
+                Leitura automática • Análise manual
+            </div>
+        </div>
+    `;
+
+    const style = document.createElement("style");
+    style.textContent = `
+        #${ID} button {
+            cursor:pointer;background:#292a32;color:white;
+            border:1px solid #41434c;border-radius:8px;
+            padding:9px;font-size:11px;
+        }
+        #${ID} .main {
+            width:100%;margin-top:9px;background:#eee;color:#111;
+            padding:11px;font-weight:bold;border:0;
+        }
+        #${ID} .buttons {
+            display:grid;grid-template-columns:1fr 1fr;
+            gap:7px;margin-top:8px;
+        }
+        #${ID} button:disabled {opacity:.5}
+    `;
+
+    document.documentElement.append(style, panel);
+
+    const $ = id => panel.querySelector("#" + id);
+
+    function setStatus(text) {
+        $("status").textContent = text;
     }
 
-    function capturarTextoPagina() {
-        const clone = document.body.cloneNode(true);
-        const alvo = clone.querySelector('.page-switch-overlay-icon.next')
-                  || clone.querySelector('button[id="finish-btn"]');
-        if (alvo) {
-            let c = alvo, i = 0;
-            while (c && i < 15) {
-                const tt = (c.innerText || '').trim();
-                if (/tentativas\s+restantes/i.test(tt) && tt.length > 60) {
-                    c.remove(); break;
+    function showResult(text) {
+        $("result").style.display = "block";
+        $("result").textContent = text;
+    }
+
+    function readPage() {
+        try {
+            const clone = document.body.cloneNode(true);
+
+            clone.querySelectorAll(
+                "#" + ID + ",script,style,noscript,svg,nav,footer,header,input,textarea,select"
+            ).forEach(el => el.remove());
+
+            const text = (clone.innerText || clone.textContent || "")
+                .split("\n")
+                .map(line => line.trim())
+                .filter(line => line.length > 2 && line.length < 1200)
+                .join("\n")
+                .slice(0, 18000);
+
+            if (!text) return;
+
+            const hash =
+                text.length + "|" +
+                text.slice(0, 180) + "|" +
+                text.slice(-180);
+
+            if (hash !== state.hash) {
+                state.hash = hash;
+                state.pages.push(text);
+
+                if (state.pages.length > 30) {
+                    state.pages.shift();
                 }
-                c = c.parentElement; i++;
             }
-        }
-        return (clone.innerText || '').split('\n').map(s => s.trim())
-            .filter(s => s.length > 2 && s.length < 800)
-            .filter(s =>
-                !/^(tentativas|terminar|bloco|fim da|página para|as aventuras|animais inventores|teste)/i.test(s) &&
-                !/^[\d\s%x]+$/.test(s) &&
-                !/^\d+\.?\s*\d*\.\-/.test(s) &&
-                !/^\d+$/.test(s)
-            )
-            .join('\n');
-    }
 
-    function guardarPaginaAtual() {
-        const texto = capturarTextoPagina();
-        if (!texto || texto.length < 20) return;
-        const hash = hashPagina(texto);
-        if (hash === memoria.ultimoHash) return;
-        memoria.ultimoHash = hash;
-        memoria.paginas.push(texto);
-        memoria.charsTotal += texto.length;
-        while (memoria.paginas.length > MAX_PAGINAS_GUARDADAS) {
-            memoria.charsTotal -= memoria.paginas.shift().length;
-        }
-    }
+            $("pages").textContent = state.pages.length;
 
-    function montarContexto() {
-        if (memoria.paginas.length === 0) return '';
-        const partes = [];
-        let total = 0;
-        for (let i = memoria.paginas.length - 1; i >= 0; i--) {
-            const p = memoria.paginas[i];
-            if (total + p.length > MAX_CHARS_CONTEXTO) break;
-            partes.unshift(p);
-            total += p.length;
-        }
-        return partes.join('\n\n---\n\n');
-    }
-
-    // ===================== PAINEL =====================
-    const painel = document.createElement('div');
-    painel.style.cssText = `
-        position:fixed; bottom:20px; right:20px; z-index:2147483647;
-        background:#1a1a1a; color:#fff; font:12px/1.45 system-ui,sans-serif;
-        padding:14px 16px; border-radius:10px; max-width:330px;
-        box-shadow:0 6px 25px rgba(0,0,0,.6); user-select:none;
-    `;
-    painel.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-            <span id="__dot" style="width:10px;height:10px;background:#4caf50;
-                  border-radius:50%;animation:pulse 1s infinite;"></span>
-            <strong id="__titulo">📖 Folheando</strong>
-        </div>
-        <div id="__contador" style="font-size:30px;font-weight:bold;text-align:center;
-             color:#4caf50;margin:4px 0;">5</div>
-        <div id="__status" style="color:#ccc;font-size:11px;
-             white-space:pre-wrap;margin-bottom:8px;min-height:36px;">
-            Páginas: <span id="__total">0</span> | Memória: <span id="__mem" style="color:#0f0;">0</span>
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <button id="__btnRepetir" style="flex:2;background:#ff9800;color:#fff;
-                border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;">🔄 DE NOVO</button>
-            <button id="__btnKey" style="flex:1;background:#333;color:#fff;border:0;
-                padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;">🔑</button>
-        </div>
-        <button id="__btnParar" style="width:100%;background:#e91e63;color:#fff;
-            border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;">⏹ PARAR</button>
-        <style>@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}</style>
-    `;
-    document.body.appendChild(painel);
-
-    const elDot      = painel.querySelector('#__dot');
-    const elTitulo   = painel.querySelector('#__titulo');
-    const elContador = painel.querySelector('#__contador');
-    const elTotal    = painel.querySelector('#__total');
-    const elMem      = painel.querySelector('#__mem');
-    const elStatus   = painel.querySelector('#__status');
-    const btnRepetir = painel.querySelector('#__btnRepetir');
-
-    let contador = SEGUNDOS_PAGINA, paginasViradas = 0, modo = 'folheando';
-    let ultimaQuestao = '', inicioQuestao = 0, tentativaAtual = 1;
-    let processandoQuestao = false, pedidoRepetir = false;
-
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    const log = txt => console.log('[AutoIA]', txt);
-
-    function atualizarMem() {
-        elMem.textContent = memoria.charsTotal + 'c/' + memoria.paginas.length + 'p';
-    }
-
-    function setModo(novo) {
-        modo = novo;
-        if (novo === 'folheando') {
-            elTitulo.textContent = '📖 Folheando';
-            elDot.style.background = '#4caf50';
-            elDot.style.animation = 'pulse 1s infinite';
-            elContador.style.color = '#4caf50';
-            elContador.textContent = SEGUNDOS_PAGINA;
-        } else if (novo === 'resolvendo') {
-            elTitulo.textContent = '🧠 Resolvendo...';
-            elDot.style.background = '#2196f3';
-            elDot.style.animation = 'none';
-            elContador.style.color = '#2196f3';
-            elContador.textContent = '🤖';
-        } else if (novo === 'erro') {
-            elTitulo.textContent = '❌ Erro';
-            elDot.style.background = '#f44336';
-            elDot.style.animation = 'none';
-            elContador.style.color = '#f44336';
-            elContador.textContent = '⚠';
-        }
-    }
-
-    // ===================== DETECÇÃO DE QUESTÃO =====================
-    function acharBotaoTerminar() {
-        for (const b of document.querySelectorAll('button')) {
-            if (b.offsetParent === null) continue;
-            if (/^terminar$/i.test((b.textContent || '').trim())) return b;
-        }
-        return null;
-    }
-
-    function acharContainerQuestao() {
-        const btnT = acharBotaoTerminar();
-        if (!btnT) return null;
-        let c = btnT.parentElement, i = 0;
-        while (c && c !== document.body && i < 15) {
-            const t = (c.innerText || '').trim();
-            if (/tentativas\s+restantes/i.test(t) && t.length > 60) return c;
-            c = c.parentElement; i++;
-        }
-        return null;
-    }
-
-    function extrairQuestao(container) {
-        const linhas = (container.innerText || '')
-            .split('\n').map(s => s.trim()).filter(Boolean)
-            .filter(s =>
-                !/^tentativas\s+restantes/i.test(s) &&
-                !/^terminar$/i.test(s) &&
-                !/^bloco\s*\d+/i.test(s)
+            const total = state.pages.reduce(
+                (sum, page) => sum + page.length, 0
             );
-        const pergunta = linhas.find(s => s.includes('?') && s.length > 20) || linhas[0];
-        const idx = linhas.indexOf(pergunta);
-        const opcoes = linhas.slice(idx + 1)
-            .filter(s => s.length > 2 && s.length < 300)
-            .slice(0, 8);
-        return { pergunta, opcoes };
-    }
 
-    // ===================== RADIOS =====================
-    function pegarRadios(container) {
-        return container.querySelectorAll('md-radio-button');
-    }
+            $("chars").textContent =
+                total > 9999
+                    ? (total / 1000).toFixed(1) + "k"
+                    : total;
 
-    function qualEstaMarcado(container) {
-        const radios = pegarRadios(container);
-        const marcados = [];
-        radios.forEach((r) => {
-            const txt = (r.innerText || '').trim().replace(/\s+/g, ' ');
-            const checked =
-                r.getAttribute('aria-checked') === 'true' ||
-                (r.classList && r.classList.contains('md-checked'));
-            if (checked) marcados.push({ texto: txt, el: r });
-        });
-        return marcados;
-    }
-
-    function encontrarRadioPorTexto(textoOpcao, container) {
-        const alvo = textoOpcao.trim().toLowerCase().replace(/\s+/g, ' ');
-        const radios = pegarRadios(container);
-        for (const r of radios) {
-            const t = (r.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
-            if (t === alvo) return r;
+            setStatus("Leitor ativo • " + new Date().toLocaleTimeString());
+        } catch (error) {
+            setStatus("Erro ao ler a página.");
         }
-        const prefixo = alvo.slice(0, 40);
-        let melhor = null, melhorDelta = Infinity;
-        for (const r of radios) {
-            const t = (r.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
-            if (t.startsWith(prefixo)) {
-                const delta = Math.abs(t.length - alvo.length);
-                if (delta < melhorDelta) { melhor = r; melhorDelta = delta; }
-            }
-        }
-        return melhor;
     }
 
-    function bateComAlvo(textoMarcado, textoAlvo) {
-        const a = textoMarcado.trim().toLowerCase().replace(/\s+/g, ' ');
-        const b = textoAlvo.trim().toLowerCase().replace(/\s+/g, ' ');
-        const prefixo = b.slice(0, 25);
-        return a.startsWith(prefixo) || b.startsWith(a.slice(0, 25));
+    function getContext() {
+        return state.pages
+            .slice(-12)
+            .join("\n\n--- Página capturada ---\n\n")
+            .slice(-14000);
     }
 
-    // ===================== CLIQUE + VERIFICAÇÃO =====================
-    async function clicarRadio(textoOpcao, container) {
-        const radio = encontrarRadioPorTexto(textoOpcao, container);
-        if (!radio) { log('❌ Radio não achado'); return { ok: false }; }
+    function configureKey() {
+        const key = prompt(
+            "Cole sua chave da OpenRouter:",
+            state.key
+        );
 
-        const textoRadio = (radio.innerText || '').trim().replace(/\s+/g, ' ');
-        log(`🎯 Alvo: "${textoRadio.slice(0, 50)}..."`);
-
-        const outlineOrig = radio.style.outline;
-        const bgOrig = radio.style.background;
-        radio.style.outline = '3px solid #ffeb3b';
-        radio.style.background = 'rgba(255,235,59,.25)';
-        await sleep(400);
-
-        try { radio.click(); } catch(_) {}
-
-        log(`⏳ Aguardando ${DELAY_VERIFICACAO}ms...`);
-        await sleep(DELAY_VERIFICACAO);
-
-        radio.style.outline = outlineOrig;
-        radio.style.background = bgOrig;
-
-        const marcados = qualEstaMarcado(container);
-        if (marcados.length === 0) {
-            log('❌ Nada marcado após clique');
-            return { ok: false, marcado: null };
+        if (key && key.trim()) {
+            state.key = key.trim();
+            sessionStorage.setItem("__portuga_or_key", state.key);
+            setStatus("API configurada nesta sessão.");
         }
-        const marcado = marcados[0];
-        log(`📋 Marcado: "${marcado.texto.slice(0, 50)}..."`);
-
-        if (bateComAlvo(marcado.texto, textoOpcao)) {
-            log('✅ Confirmado');
-            return { ok: true, marcado };
-        }
-        log(`❌ Marcou errado!`);
-        return { ok: false, marcado };
     }
 
-    async function clicarTerminar() {
-        const btn = acharBotaoTerminar();
-        if (!btn) { log('❌ TERMINAR não achado'); return false; }
-        log('📤 TERMINAR');
-        try { btn.click(); } catch(_) {}
-        await sleep(200);
-        if (document.contains(btn) && btn.offsetParent !== null) {
-            ['mousedown','mouseup','click'].forEach(tp => {
-                btn.dispatchEvent(new MouseEvent(tp, { bubbles: true, cancelable: true, view: window }));
-            });
-        }
-        return true;
-    }
+    async function askAI() {
+        if (state.busy) return;
 
-    // ===================== IA (API PADRÃO) =====================
-    async function perguntarIA(prompt, totalOpcoes) {
-        for (let t = 0; t < TENTATIVAS; t++) {
-            try {
-                log(`🌐 Tentativa ${t+1}/${TENTATIVAS}...`);
-                const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                    method: 'POST',
+        if (!state.key) {
+            configureKey();
+            if (!state.key) return;
+        }
+
+        const question = $("question").value.trim();
+
+        if (!question) {
+            setStatus("Escreva uma pergunta primeiro.");
+            $("question").focus();
+            return;
+        }
+
+        readPage();
+
+        state.busy = true;
+        $("ask").disabled = true;
+        $("ask").textContent = "ANALISANDO...";
+        setStatus("Consultando a OpenRouter...");
+
+        try {
+            const response = await fetch(
+                "https://openrouter.ai/api/v1/chat/completions",
+                {
+                    method: "POST",
                     headers: {
-                        'Authorization': 'Bearer ' + API_KEY,
-                        'Content-Type': 'application/json',
-                        'HTTP-Referer': location.origin,
-                        'X-Title': 'QuizVote'
+                        "Authorization": "Bearer " + state.key,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": location.origin,
+                        "X-Title": "PORTUGA IA Reader"
                     },
                     body: JSON.stringify({
-                        model: 'openrouter/free',
+                        model: "openrouter/free",
                         messages: [
-                            { role: 'system', content: 'Responda SEMPRE no formato "RESPOSTA: N".' },
-                            { role: 'user', content: prompt }
+                            {
+                                role: "system",
+                                content:
+                                    "Você é um assistente educacional brasileiro. " +
+                                    "Ajude o estudante a compreender textos e perguntas. " +
+                                    "Responda em português claro e direto. " +
+                                    "Use o contexto disponível e não invente informações. " +
+                                    "Se faltarem dados, informe isso."
+                            },
+                            {
+                                role: "user",
+                                content:
+                                    "CONTEXTO DA LEITURA:\n" +
+                                    (getContext() || "Nenhum texto capturado.") +
+                                    "\n\nPERGUNTA:\n" + question
+                            }
                         ],
-                        temperature: t > 0 ? 0.4 : 0,
-                        max_tokens: 400
+                        temperature: 0.2,
+                        max_tokens: 1200
                     })
-                });
-                if (!r.ok) {
-                    log(`  ❌ HTTP ${r.status}`);
-                    continue;
                 }
-                const d = await r.json();
-                const raw = (d.choices && d.choices[0] &&
-                             d.choices[0].message &&
-                             d.choices[0].message.content || '').trim();
-                const modeloReal = (d.model || 'openrouter/free').split('/').pop();
+            );
 
-                if (!raw) { log('  ⚠️ Vazio'); continue; }
-                log(`  📩 "${raw.slice(0,80)}" via ${modeloReal}`);
+            const data = await response.json();
 
-                let num = null;
-                const mResp = raw.match(/RESPOSTA[:\s]*(\d+)/i);
-                if (mResp) num = parseInt(mResp[1], 10);
-                else {
-                    const mNum = raw.match(/\b(\d+)\b/g);
-                    if (mNum) for (const s of mNum) {
-                        const n = parseInt(s, 10);
-                        if (n >= 1 && n <= totalOpcoes) { num = n; break; }
-                    }
-                }
-                if (num && num >= 1 && num <= totalOpcoes) {
-                    log(`  ✅ ${num}`);
-                    return { num, raw, modelo: modeloReal };
-                }
-            } catch (e) {
-                log(`  ❌ ${e.message.slice(0,50)}`);
-            }
-        }
-        return null;
-    }
-
-    async function votarQuestao(pergunta, opcoes, contexto) {
-        const lista = opcoes.map((o, i) => `${i+1}) ${o}`).join('\n');
-        const blocoCtx = contexto && contexto.length > 50
-            ? `TEXTO DE APOIO:\n${contexto}\n`
-            : '';
-
-        const votos = {}, detalhes = [];
-        for (let r = 1; r <= RODADAS_VOTACAO; r++) {
-            log(`🗳️ Rodada ${r}/${RODADAS_VOTACAO}`);
-            elStatus.textContent = `🗳️ ${r}/${RODADAS_VOTACAO}...`;
-
-            const prompt =
-`Você é um professor de português corrigindo prova brasileira.
-
-${blocoCtx}
-PERGUNTA:
-${pergunta}
-
-ALTERNATIVAS:
-${lista}
-
-Analise cada alternativa com cuidado. Elimine as claramente erradas.
-
-FORMATO OBRIGATÓRIO — apenas uma linha:
-RESPOSTA: N
-Não escreva mais nada.`;
-
-            const res = await perguntarIA(prompt, opcoes.length);
-            if (!res) { log('  ❌ Sem resposta'); continue; }
-            votos[res.num] = (votos[res.num] || 0) + 1;
-            detalhes.push(res.num);
-        }
-
-        let maxVotos = 0, vencedor = null, empate = false;
-        for (const k in votos) {
-            if (votos[k] > maxVotos) { maxVotos = votos[k]; vencedor = parseInt(k, 10); empate = false; }
-            else if (votos[k] === maxVotos) empate = true;
-        }
-        return { vencedor, votos, detalhes, empate };
-    }
-
-    // ===================== RESOLVER =====================
-    async function resolverQuestao(container) {
-        setModo('resolvendo');
-        try {
-            const { pergunta, opcoes } = extrairQuestao(container);
-            if (!pergunta || opcoes.length < 2) {
-                elStatus.textContent = '❌ Não extraí';
-                setModo('erro');
-                return false;
+            if (!response.ok) {
+                throw new Error(
+                    data?.error?.message || "HTTP " + response.status
+                );
             }
 
-            const contexto = montarContexto();
-            log(`Contexto: ${contexto.length} chars`);
-            elStatus.textContent = `🧠 "${pergunta.slice(0, 40)}..."`;
+            const answer = data?.choices?.[0]?.message?.content;
 
-            const { vencedor, votos, detalhes, empate } = await votarQuestao(pergunta, opcoes, contexto);
-
-            if (!vencedor) {
-                elStatus.textContent = '❌ IA não respondeu';
-                setModo('erro');
-                return false;
+            if (!answer) {
+                throw new Error("A IA retornou uma resposta vazia.");
             }
 
-            const votosStr = `[${detalhes.join(',')}]`;
-            log(`Votos: ${JSON.stringify(votos)} | Seq: ${votosStr}`);
+            showResult(
+                Array.isArray(answer)
+                    ? answer.map(item => item.text || "").join("\n")
+                    : answer
+            );
 
-            const textoOpcao = opcoes[vencedor - 1];
-            log(`Marcar opção ${vencedor}: "${textoOpcao}"`);
-            elStatus.textContent = `✅ (${vencedor}) ${textoOpcao.slice(0, 35)} ${votosStr}`;
+            setStatus("Análise concluída.");
+        } catch (error) {
+            showResult(
+                "Falha na consulta:\n" +
+                String(error.message || error) +
+                "\n\nVerifique a conexão, a chave e a disponibilidade do modelo."
+            );
 
-            await sleep(DELAY_ANTES_CLIQUE);
-            const resultado = await clicarRadio(textoOpcao, container);
-
-            if (VERIFICAR_ANTES_ENVIAR && !resultado.ok) {
-                elStatus.textContent = '❌ Marcou errada ou nada — abortado';
-                setModo('erro');
-                return false;
-            }
-
-            elStatus.textContent = '👆 Confirmada. Enviando...';
-
-            if (AUTOSUBMIT) {
-                await sleep(500);
-                const enviou = await clicarTerminar();
-                if (enviou) {
-                    await sleep(DELAY_POS_TERMINAR);
-                    elStatus.textContent = `📤 Enviado! ${votosStr}`;
-                } else {
-                    elStatus.textContent = '⚠️ TERMINAR não achado';
-                }
-            }
-            return true;
-        } catch (e) {
-            elStatus.textContent = '❌ ' + e.message.slice(0, 55);
-            console.error(e);
-            setModo('erro');
-            return false;
+            setStatus("Erro na consulta à IA.");
+        } finally {
+            state.busy = false;
+            $("ask").disabled = false;
+            $("ask").textContent = "✦ ANALISAR COM IA";
         }
     }
 
-    // ===================== LOOP =====================
-    async function loopPrincipal() {
-        guardarPaginaAtual(); atualizarMem();
+    $("read").onclick = readPage;
+    $("ask").onclick = askAI;
+    $("key").onclick = configureKey;
 
-        while (modo !== 'parado') {
-            const container = acharContainerQuestao();
-            if (container && !processandoQuestao) {
-                const textoAtual = (container.innerText || '').trim();
-                if (textoAtual !== ultimaQuestao ||
-                    Date.now() - inicioQuestao > TIMEOUT_QUESTAO ||
-                    pedidoRepetir) {
-                    ultimaQuestao = textoAtual;
-                    inicioQuestao = Date.now();
-                    processandoQuestao = true;
-                    pedidoRepetir = false;
-                    await resolverQuestao(container);
-                    await sleep(ESPERA_POS_Q);
-                    let t = 0;
-                    while (acharContainerQuestao() && t < 20) { await sleep(500); t++; }
-                    processandoQuestao = false;
-                    ultimaQuestao = '';
-                    setModo('folheando');
-                    contador = SEGUNDOS_PAGINA;
-                    continue;
-                }
-            }
+    $("clear").onclick = () => {
+        if (!confirm("Apagar todas as páginas guardadas?")) return;
 
-            await sleep(1000);
-            if (modo === 'parado') break;
-            if (processandoQuestao) continue;
+        state.pages = [];
+        state.hash = "";
 
-            contador--;
-            elContador.textContent = contador;
-            guardarPaginaAtual(); atualizarMem();
+        $("pages").textContent = "0";
+        $("chars").textContent = "0";
 
-            if (contador <= 0) {
-                guardarPaginaAtual();
-                avancarPagina();
-                paginasViradas++;
-                elTotal.textContent = paginasViradas;
-                contador = SEGUNDOS_PAGINA;
-                elContador.textContent = contador;
-                await sleep(800);
-                guardarPaginaAtual(); atualizarMem();
-            }
-        }
-    }
-
-    function avancarPagina() {
-        try {
-            const alvo = document.querySelector('[ng-click*="goToNextPage"]')
-                      || document.querySelector('.page-switch-overlay-icon.next');
-            if (alvo && window.angular) {
-                let s = angular.element(alvo).scope(), n = 0;
-                while (s && typeof s.goToNextPage !== 'function' && n < 12) { s = s.$parent; n++; }
-                if (s && typeof s.goToNextPage === 'function') {
-                    s.$apply(() => s.goToNextPage()); return;
-                }
-            }
-        } catch (e) {}
-        const btn = document.querySelector('.page-switch-overlay-icon.embedded.next');
-        if (btn && btn.offsetParent !== null) { btn.click(); return; }
-        document.dispatchEvent(new KeyboardEvent('keydown', {
-            key:'ArrowRight', code:'ArrowRight', keyCode:39, which:39, bubbles:true
-        }));
-    }
-
-    // ===================== BOTÕES =====================
-    function parar() {
-        modo = 'parado';
-        setTimeout(() => painel.remove(), 100);
-        window.__autoIA = null;
-    }
-    painel.querySelector('#__btnParar').onclick = parar;
-    painel.querySelector('#__btnKey').onclick = () => {
-        const nova = prompt('Nova chave OpenRouter:', API_KEY);
-        if (nova) { API_KEY = nova; localStorage.setItem('__or_key', nova); }
-    };
-    btnRepetir.onclick = () => {
-        const container = acharContainerQuestao();
-        if (!container) { elStatus.textContent = '⚠️ Sem questão'; return; }
-        if (processandoQuestao) { elStatus.textContent = '⏳ Já resolvendo'; return; }
-        pedidoRepetir = true;
+        setStatus("Memória apagada.");
     };
 
-    // ===================== INICIA =====================
-    window.__autoIA = { parar };
-    console.log('[AutoIA] Ativo. Modelo: openrouter/free');
+    $("copy").onclick = async () => {
+        try {
+            await navigator.clipboard.writeText(getContext());
+            setStatus("Texto copiado.");
+        } catch (error) {
+            showResult(getContext() || "Nenhum texto capturado.");
+            setStatus("Selecione e copie o texto exibido.");
+        }
+    };
 
-    setModo('folheando');
-    loopPrincipal();
-})(); 
+    $("min").onclick = () => {
+        state.minimized = !state.minimized;
+        $("body").style.display = state.minimized ? "none" : "block";
+        $("min").textContent = state.minimized ? "+" : "—";
+    };
+
+    function destroy() {
+        clearInterval(state.timer);
+        panel.remove();
+        style.remove();
+        sessionStorage.removeItem("__portuga_or_key");
+        delete window.__PORTUGA_IA;
+    }
+
+    $("close").onclick = destroy;
+
+    // Arrastar o painel com mouse ou toque.
+    let drag = null;
+    const head = $("head");
+
+    head.addEventListener("pointerdown", event => {
+        if (event.target.closest("button")) return;
+
+        const rect = panel.getBoundingClientRect();
+
+        drag = {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+        };
+
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+
+        head.setPointerCapture(event.pointerId);
+    });
+
+    head.addEventListener("pointermove", event => {
+        if (!drag) return;
+
+        panel.style.left = Math.max(
+            0,
+            Math.min(innerWidth - panel.offsetWidth, event.clientX - drag.x)
+        ) + "px";
+
+        panel.style.top = Math.max(
+            0,
+            Math.min(innerHeight - 45, event.clientY - drag.y)
+        ) + "px";
+    });
+
+    head.addEventListener("pointerup", () => drag = null);
+    head.addEventListener("pointercancel", () => drag = null);
+
+    state.timer = setInterval(readPage, 3000);
+
+    window.__PORTUGA_IA = { destroy };
+
+    readPage();
+})();
