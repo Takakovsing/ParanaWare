@@ -5,9 +5,11 @@
     const SEGUNDOS_PAGINA = 5;
     const MODELO          = 'openrouter/free';
     const AUTOSUBMIT      = true;
-    const DELAY_CLIQUE    = 1500;
-    const TIMEOUT_QUESTAO = 60000;
-    const ESPERA_POS_Q    = 2500;
+    const DELAY_ANTES_CLIQUE = 300;
+    const DELAY_POS_OPCAO    = 900;
+    const DELAY_POS_TERMINAR = 1200;
+    const TIMEOUT_QUESTAO    = 60000;
+    const ESPERA_POS_Q       = 2500;
 
     let API_KEY = localStorage.getItem('__or_key');
     if (!API_KEY) {
@@ -21,7 +23,7 @@
     painel.style.cssText = `
         position:fixed; bottom:20px; right:20px; z-index:2147483647;
         background:#1a1a1a; color:#fff; font:12px/1.45 system-ui,sans-serif;
-        padding:14px 16px; border-radius:10px; max-width:330px;
+        padding:14px 16px; border-radius:10px; max-width:340px;
         box-shadow:0 6px 25px rgba(0,0,0,.6); user-select:none;
     `;
     painel.innerHTML = `
@@ -33,7 +35,7 @@
         <div id="__contador" style="font-size:30px;font-weight:bold;text-align:center;
              color:#4caf50;margin:4px 0;font-variant-numeric:tabular-nums;">5</div>
         <div id="__status" style="color:#ccc;font-size:11px;
-             white-space:pre-wrap;margin-bottom:8px;min-height:32px;">
+             white-space:pre-wrap;margin-bottom:8px;min-height:36px;">
              Páginas: <span id="__total" style="color:#fff;font-weight:bold;">0</span>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:6px;">
@@ -51,10 +53,6 @@
             @keyframes pulse{
                 0%,100%{opacity:1;transform:scale(1)}
                 50%{opacity:.4;transform:scale(1.3)}
-            }
-            @keyframes girar{
-                0%{transform:rotate(0deg)}
-                100%{transform:rotate(360deg)}
             }
         </style>
     `;
@@ -125,24 +123,149 @@
         let pergunta = linhas.find(s => s.includes('?') && s.length > 20) || linhas[0];
         const idx = linhas.indexOf(pergunta);
         const opcoes = linhas.slice(idx + 1)
-            .filter(s => s.length > 2 && s.length < 250)
+            .filter(s => s.length > 2 && s.length < 300)
             .slice(0, 8);
         return { pergunta, opcoes };
     }
 
-    function acharElementoPorTexto(texto, container) {
+    // ============ ENCONTRAR ELEMENTO DA OPÇÃO ============
+    function acharElementoOpcao(texto, container) {
         if (!texto) return null;
         const alvo = texto.trim().toLowerCase();
+        const abreviado = alvo.slice(0, 30);
         let melhor = null, melhorLen = Infinity;
+
         for (const el of container.querySelectorAll('*')) {
-            if (el.children.length > 3) continue;
+            // não descer muito fundo (evita pegar span de 1 letra)
+            if (el.children.length > 4) continue;
             const t = (el.innerText || '').trim().toLowerCase();
-            if (!t) continue;
-            if (t === alvo || (t.length > 10 && t.includes(alvo.slice(0, 30)))) {
+            if (!t || t.length < 3) continue;
+
+            // match: exato OU contém o começo do texto da opção
+            if (t === alvo || t.includes(abreviado)) {
                 if (t.length < melhorLen) { melhor = el; melhorLen = t.length; }
             }
         }
         return melhor;
+    }
+
+    // Sobe até achar o container clicável da opção (radio, label, ng-click)
+    function acharClicavel(el) {
+        let c = el, up = 0;
+        while (c && up < 10) {
+            if (c.tagName === 'MD-RADIO-BUTTON' ||
+                c.tagName === 'LABEL' ||
+                c.tagName === 'BUTTON' ||
+                c.tagName === 'INPUT') return c;
+            if (c.hasAttribute && (
+                c.hasAttribute('ng-click') ||
+                c.hasAttribute('ng-model') ||
+                c.getAttribute('role') === 'radio' ||
+                c.classList?.contains('md-radio-button') ||
+                c.classList?.contains('radio-button')
+            )) return c;
+            c = c.parentElement; up++;
+        }
+        return el; // fallback
+    }
+
+    // ============ CLICAR NA OPÇÃO (multi-estratégia) ============
+    async function clicarOpcao(textoOpcao, container) {
+        const alvo = acharElementoOpcao(textoOpcao, container);
+        if (!alvo) { log('❌ Não achou elemento da opção'); return false; }
+
+        const clicavel = acharClicavel(alvo);
+        log(`Clicando em <${clicavel.tagName.toLowerCase()}>`);
+
+        // Estratégia 1: clique normal
+        try { clicavel.click(); } catch(_) {}
+        await sleep(150);
+        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (click)'); return true; }
+
+        // Estratégia 2: eventos completos de mouse
+        try {
+            const r = clicavel.getBoundingClientRect();
+            const x = r.left + r.width/2, y = r.top + r.height/2;
+            ['mousedown','mouseup','click'].forEach(tipo => {
+                clicavel.dispatchEvent(new MouseEvent(tipo, {
+                    bubbles: true, cancelable: true, view: window,
+                    clientX: x, clientY: y, button: 0
+                }));
+            });
+        } catch(_) {}
+        await sleep(150);
+        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (mouse events)'); return true; }
+
+        // Estratégia 3: chama ng-click via scope do Angular
+        try {
+            if (window.angular) {
+                let s = angular.element(clicavel).scope();
+                let n = 0;
+                while (s && n < 10) {
+                    if (s.$apply) {
+                        s.$apply(() => {
+                            if (typeof s.select === 'function') s.select();
+                            else if (typeof s.click === 'function') s.click();
+                            else if (typeof s.toggle === 'function') s.toggle();
+                        });
+                        break;
+                    }
+                    s = s.$parent; n++;
+                }
+            }
+        } catch(_) {}
+        await sleep(150);
+        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (angular scope)'); return true; }
+
+        // Estratégia 4: clica no input radio escondido dentro
+        try {
+            const radio = clicavel.querySelector('input[type="radio"]');
+            if (radio) { radio.click(); radio.checked = true;
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } catch(_) {}
+        await sleep(150);
+        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (input radio)'); return true; }
+
+        log('⚠️ Não consegui confirmar marcação, mas enviei os cliques');
+        return true; // tenta seguir mesmo assim
+    }
+
+    // Verifica se a opção está visualmente marcada
+    function opcaoMarcada(clicavel, alvo) {
+        try {
+            // procura por elementos próximos com aria-checked=true ou classe md-checked
+            const wrapper = clicavel.closest('[role="radio"]') ||
+                            clicavel.closest('md-radio-button') ||
+                            clicavel.parentElement;
+            if (wrapper) {
+                if (wrapper.getAttribute('aria-checked') === 'true') return true;
+                if (wrapper.classList?.contains('md-checked')) return true;
+                const inner = wrapper.querySelector('[aria-checked="true"], .md-checked');
+                if (inner) return true;
+            }
+            // qualquer radio visível marcado dentro do alvo
+            if (alvo.querySelector('input[type="radio"]:checked')) return true;
+        } catch(_) {}
+        return false;
+    }
+
+    // ============ CLICAR EM TERMINAR ============
+    async function clicarTerminar() {
+        const btn = acharBotaoTerminar();
+        if (!btn) { log('❌ TERMINAR não achado'); return false; }
+        log('📤 Clicando em TERMINAR...');
+        try { btn.click(); } catch(_) {}
+        await sleep(200);
+        // se ainda existir, tenta eventos de mouse
+        if (document.contains(btn) && btn.offsetParent !== null) {
+            ['mousedown','mouseup','click'].forEach(tipo => {
+                btn.dispatchEvent(new MouseEvent(tipo, {
+                    bubbles: true, cancelable: true, view: window
+                }));
+            });
+        }
+        return true;
     }
 
     // ============ OPENROUTER ============
@@ -150,11 +273,10 @@
         const lista = opcoes.map((o, i) => `${i+1}. ${o}`).join('\n');
         const variacoes = [
             'Responda APENAS com o número da opção correta. Sem texto extra.',
-            'Analise com cuidado e responda APENAS com o número da opção correta. Sem explicações.',
-            'Pense passo a passo internamente e responda APENAS com o número da opção correta.'
+            'Analise com cuidado e responda APENAS com o número. Sem explicações.',
+            'Pense passo a passo internamente e responda APENAS com o número.'
         ];
         const instrucao = variacoes[Math.min(tentativa - 1, variacoes.length - 1)];
-
         const prompt =
 `Você responde questões de múltipla escolha em português.
 
@@ -180,23 +302,21 @@ ${instrucao}`;
                     { role: 'system', content: 'Responda apenas com um número.' },
                     { role: 'user', content: prompt }
                 ],
-                temperature: tentativa > 1 ? 0.3 : 0, // varia um pouco nas repetições
+                temperature: tentativa > 1 ? 0.3 : 0,
                 max_tokens: 20
             })
         });
-
         if (!r.ok) {
             const erro = (await r.text()).slice(0, 180);
             throw new Error(`OpenRouter ${r.status}: ${erro}`);
         }
-
         const data = await r.json();
         const txt = (data?.choices?.[0]?.message?.content || '').trim();
         const num = parseInt(txt.replace(/\D/g, ''), 10);
         return { num, raw: txt, modelo: data?.model || MODELO };
     }
 
-    // ============ RESOLVER ============
+    // ============ RESOLVER QUESTÃO COMPLETA ============
     let tentativaAtual = 1;
 
     async function resolverQuestao(container, tentativa = 1) {
@@ -208,8 +328,7 @@ ${instrucao}`;
                 return false;
             }
 
-            elStatus.textContent = `🧠 (tent. ${tentativa}) "${pergunta.slice(0, 50)}..."`;
-
+            elStatus.textContent = `🧠 (t.${tentativa}) "${pergunta.slice(0, 45)}..."`;
             const ia = await perguntarIA(pergunta, opcoes, tentativa);
             const idx = ia.num - 1;
             if (isNaN(idx) || idx < 0 || idx >= opcoes.length) {
@@ -219,40 +338,29 @@ ${instrucao}`;
 
             const textoOpcao = opcoes[idx];
             elStatus.textContent = `✅ (${ia.num}) ${textoOpcao.slice(0, 45)}`;
-            log(`Tentativa ${tentativa} — IA (${ia.modelo}) escolheu (${ia.num}): ${textoOpcao.slice(0, 80)}`);
+            log(`IA (${ia.modelo}) escolheu (${ia.num}): ${textoOpcao}`);
 
-            const alvo = acharElementoPorTexto(textoOpcao, container);
-            if (!alvo) {
-                elStatus.textContent = '❌ Opção não clicável';
+            await sleep(DELAY_ANTES_CLIQUE);
+            const marcou = await clicarOpcao(textoOpcao, container);
+            if (!marcou) {
+                elStatus.textContent = '❌ Falha ao marcar opção';
                 return false;
             }
-
-            let clicavel = alvo, up = 0;
-            while (clicavel && up < 6) {
-                const tag = clicavel.tagName.toLowerCase();
-                if (tag === 'button' || tag === 'label' || tag.includes('radio') ||
-                    clicavel.getAttribute('role') === 'radio' ||
-                    clicavel.getAttribute('ng-click')) break;
-                clicavel = clicavel.parentElement; up++;
-            }
-            if (!clicavel) clicavel = alvo;
-
-            await sleep(DELAY_CLIQUE);
-            clicavel.click();
+            elStatus.textContent = '👆 Marcada. Enviando...';
 
             if (AUTOSUBMIT) {
-                await sleep(900);
-                const btnT = acharBotaoTerminar();
-                if (btnT) {
-                    btnT.click();
-                    elStatus.textContent = `📤 Enviado (tent. ${tentativa})!`;
+                await sleep(DELAY_POS_OPCAO);
+                const enviou = await clicarTerminar();
+                if (enviou) {
+                    await sleep(DELAY_POS_TERMINAR);
+                    elStatus.textContent = `📤 Enviado (t.${tentativa})!`;
                 } else {
                     elStatus.textContent = '⚠️ TERMINAR não achado';
                 }
             }
             return true;
         } catch (e) {
-            elStatus.textContent = '❌ ' + e.message.slice(0, 60);
+            elStatus.textContent = '❌ ' + e.message.slice(0, 55);
             console.error(e);
             return false;
         }
@@ -267,7 +375,9 @@ ${instrucao}`;
             const container = acharContainerQuestao();
             if (container && !processandoQuestao) {
                 const textoAtual = (container.innerText || '').trim();
-                if (textoAtual !== ultimaQuestao || Date.now() - inicioQuestao > TIMEOUT_QUESTAO || pedidoRepetir) {
+                if (textoAtual !== ultimaQuestao ||
+                    Date.now() - inicioQuestao > TIMEOUT_QUESTAO ||
+                    pedidoRepetir) {
                     ultimaQuestao = textoAtual;
                     inicioQuestao = Date.now();
                     processandoQuestao = true;
@@ -291,7 +401,6 @@ ${instrucao}`;
 
             contador--;
             elContador.textContent = contador;
-
             if (contador <= 0) {
                 avancarPagina();
                 paginasViradas++;
@@ -308,10 +417,11 @@ ${instrucao}`;
                       || document.querySelector('.page-switch-overlay-icon.next');
             if (alvo && window.angular) {
                 let s = angular.element(alvo).scope(), n = 0;
-                while (s && typeof s.goToNextPage !== 'function' && n < 12) { s = s.$parent; n++; }
+                while (s && typeof s.goToNextPage !== 'function' && n < 12) {
+                    s = s.$parent; n++;
+                }
                 if (s && typeof s.goToNextPage === 'function') {
-                    s.$apply(() => s.goToNextPage());
-                    return;
+                    s.$apply(() => s.goToNextPage()); return;
                 }
             }
         } catch (e) {}
@@ -322,40 +432,28 @@ ${instrucao}`;
         }));
     }
 
-    // ============ PARAR ============
+    // ============ PARAR / BOTÕES ============
     function parar() {
         modo = 'parado';
         setTimeout(() => painel.remove(), 100);
         window.__autoIA = null;
-        console.log('[AutoIA] Parado. Total páginas:', paginasViradas);
     }
     painel.querySelector('#__btnParar').onclick = parar;
     painel.querySelector('#__btnKey').onclick = () => {
         const nova = prompt('Nova chave OpenRouter:', API_KEY);
         if (nova) { API_KEY = nova; localStorage.setItem('__or_key', nova); }
     };
-
-    // ============ BOTÃO PERGUNTAR DE NOVO ============
     btnRepetir.onclick = () => {
         const container = acharContainerQuestao();
-        if (!container) {
-            elStatus.textContent = '⚠️ Nenhuma questão na tela agora';
-            return;
-        }
-        if (processandoQuestao) {
-            elStatus.textContent = '⏳ Já estou resolvendo...';
-            return;
-        }
-        // Aumenta a tentativa (varia o prompt)
+        if (!container) { elStatus.textContent = '⚠️ Nenhuma questão na tela'; return; }
+        if (processandoQuestao) { elStatus.textContent = '⏳ Já resolvendo...'; return; }
         tentativaAtual++;
         pedidoRepetir = true;
-        btnRepetir.style.transform = 'rotate(360deg)';
-        setTimeout(() => btnRepetir.style.transform = '', 400);
-        log(`🔄 Repetir solicitado (tentativa ${tentativaAtual})`);
+        log(`🔄 Repetir (tentativa ${tentativaAtual})`);
     };
 
     window.__autoIA = { parar };
-    console.log('[AutoIA] Ativo. Modelo:', MODELO, '| Autosubmit:', AUTOSUBMIT);
+    console.log('[AutoIA] Ativo. Modelo:', MODELO);
 
     setModo('folheando');
     loopPrincipal();
