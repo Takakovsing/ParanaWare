@@ -1,523 +1,85 @@
+(() => {
+  if (document.querySelector("#pIA")) return;
 
-(async function PORTUGA_IA() {
-    if (window.__PORTUGA_IA) {
-        window.__PORTUGA_IA.destroy();
-        return;
+  let key = localStorage.pk || "";
+  const box = document.createElement("div");
+
+  box.id = "pIA";
+  box.style = "position:fixed;z-index:999999;top:15%;right:8px;width:165px;padding:9px;background:#111;color:white;border:1px solid #444;border-radius:9px;font:12px Arial";
+
+  box.innerHTML = `
+    <b>🕸️ PORTUGA IA</b>
+    <span id="x" style="float:right;cursor:pointer">✕</span>
+    <p id="s">Pronto</p>
+    <button id="l">📖 Ler</button>
+    <button id="a">✦ IA</button>
+    <button id="c">🔑</button>
+    <div id="o" style="white-space:pre-wrap;max-height:220px;overflow:auto;margin-top:7px"></div>
+  `;
+
+  document.body.append(box);
+
+  const $ = id => box.querySelector("#" + id);
+  const texto = () => document.body.innerText.slice(0, 7000);
+
+  $("x").onclick = () => box.remove();
+
+  $("l").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(texto());
+      $("s").textContent = "Texto copiado!";
+    } catch {
+      $("s").textContent = "Não foi possível copiar.";
+    }
+  };
+
+  $("c").onclick = () => {
+    const value = prompt("Chave OpenRouter:", key);
+    if (value !== null) {
+      key = value.trim();
+      localStorage.pk = key;
+    }
+  };
+
+  $("a").onclick = async () => {
+    if (!key) {
+      $("o").textContent = "Configure a chave 🔑";
+      return;
     }
 
-    const ID = "__portuga_ia_panel";
-    const state = {
-        pages: [],
-        hash: "",
-        key: sessionStorage.getItem("__portuga_or_key") || "",
-        timer: null,
-        busy: false,
-        minimized: false,
-        destroyed: false
-    };
+    $("o").textContent = "Pensando...";
 
-    const previous = document.getElementById(ID);
-    if (previous) previous.remove();
-
-    const panel = document.createElement("div");
-    panel.id = ID;
-
-    panel.style.cssText = `
-        position:fixed;
-        right:10px;
-        bottom:10px;
-        width:245px;
-        max-width:calc(100vw - 20px);
-        max-height:65vh;
-        overflow:auto;
-        z-index:2147483647;
-        background:#090a0f;
-        color:#f4f5f8;
-        border:1px solid #383b49;
-        border-radius:15px;
-        box-shadow:0 0 0 1px #ffffff08,0 12px 35px #000b;
-        font:11px/1.45 system-ui,sans-serif;
-        backdrop-filter:blur(20px);
-        scrollbar-width:thin;
-    `;
-
-    panel.innerHTML = `
-        <div style="
-            height:2px;
-            background:linear-gradient(90deg,transparent,#fff,#85899a,transparent);
-            background-size:200% 100%;
-            animation:ptGlow 3s linear infinite">
-        </div>
-
-        <div id="head" style="
-            display:flex;align-items:center;gap:9px;
-            padding:11px;
-            background:linear-gradient(135deg,#191b24,#0b0c11);
-            border-bottom:1px solid #292b35;
-            cursor:move;touch-action:none">
-
-            <div style="
-                width:32px;height:32px;flex-shrink:0;
-                display:grid;place-items:center;
-                border:1px solid #454958;border-radius:10px;
-                background:linear-gradient(145deg,#292d39,#101117)">
-                <span style="font-size:17px">🕸️</span>
-            </div>
-
-            <div style="flex:1;min-width:0">
-                <div style="font-size:13px;font-weight:850;letter-spacing:1px">
-                    PORTUGA <span style="color:#9da3b5">IA</span>
-                </div>
-                <div style="font-size:8px;color:#777e91;letter-spacing:1.5px">
-                    READER SYSTEM
-                </div>
-            </div>
-
-            <button id="min" class="ptIcon">−</button>
-            <button id="close" class="ptIcon">×</button>
-        </div>
-
-        <div id="body" style="padding:11px">
-            <div style="
-                display:flex;align-items:center;gap:7px;
-                padding:8px;background:#11131a;
-                border:1px solid #242733;border-radius:9px;
-                margin-bottom:10px">
-                <span id="ptDot" style="
-                    width:7px;height:7px;border-radius:50%;
-                    background:#a5e6c0;box-shadow:0 0 10px #a5e6c077">
-                </span>
-                <span id="status" style="flex:1;color:#aeb2c1">
-                    Inicializando leitor...
-                </span>
-                <span style="font-size:8px;color:#73798a">V2</span>
-            </div>
-
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                <div class="ptStat">
-                    <div class="ptLabel">PÁGINAS LIDAS</div>
-                    <div id="pages" class="ptNumber">0</div>
-                </div>
-                <div class="ptStat">
-                    <div class="ptLabel">CARACTERES</div>
-                    <div id="chars" class="ptNumber">0</div>
-                </div>
-            </div>
-
-            <div style="
-                display:flex;align-items:center;gap:6px;
-                margin:13px 0 6px">
-                <span style="font-size:12px">✦</span>
-                <span style="font-size:10px;font-weight:750;letter-spacing:.8px">
-                    ASSISTENTE IA
-                </span>
-                <span style="flex:1;height:1px;background:#292b35"></span>
-            </div>
-
-            <textarea id="question"
-                placeholder="Digite sua pergunta..."
-                style="
-                    display:block;box-sizing:border-box;width:100%;
-                    min-height:64px;max-height:110px;resize:vertical;
-                    padding:10px;background:#0e1016;color:#f4f5f8;
-                    border:1px solid #303340;border-radius:10px;
-                    outline:none;font:11px/1.5 system-ui,sans-serif">
-            </textarea>
-
-            <button id="ask" class="ptAnalyze">
-                ✦ ANALISAR COM IA
-            </button>
-
-            <div style="
-                display:flex;align-items:center;gap:6px;
-                margin:13px 0 7px">
-                <span style="font-size:9px;font-weight:750;color:#9298a9">
-                    FERRAMENTAS
-                </span>
-                <span style="flex:1;height:1px;background:#292b35"></span>
-            </div>
-
-            <div class="ptGrid">
-                <button id="read" class="ptTool">↻ Ler página</button>
-                <button id="key" class="ptTool">⚙ Configurar API</button>
-                <button id="copy" class="ptTool">▣ Copiar texto</button>
-                <button id="clear" class="ptTool">⌫ Limpar memória</button>
-            </div>
-
-            <div id="result" style="
-                display:none;margin-top:10px;padding:10px;
-                background:#101219;border:1px solid #303340;
-                border-radius:10px;color:#e0e3ec;
-                white-space:pre-wrap;overflow-wrap:anywhere;
-                max-height:180px;overflow:auto;font-size:11px">
-            </div>
-
-            <div style="
-                display:flex;justify-content:space-between;
-                align-items:center;margin-top:12px;
-                padding-top:9px;border-top:1px solid #242630">
-                <span style="font-size:8px;color:#747a8c;letter-spacing:.6px">
-                    PORTUGA IA
-                </span>
-                <span style="font-size:8px;color:#aeb2c1">
-                    ● DARK PREMIUM
-                </span>
-            </div>
-        </div>
-    `;
-
-    const style = document.createElement("style");
-    style.textContent = `
-        @keyframes ptGlow {
-            0% {background-position:100% 0}
-            100% {background-position:-100% 0}
+    try {
+      const response = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + key
+          },
+          body: JSON.stringify({
+            model: "openrouter/free",
+            messages: [{
+              role: "user",
+              content:
+                "Explique o conteúdo e ajude a compreender as perguntas, sem inventar informações:\n" +
+                texto()
+            }]
+          })
         }
+      );
 
-        #${ID} * {box-sizing:border-box}
+      const data = await response.json();
 
-        #${ID} .ptIcon {
-            width:25px;height:25px;padding:0;
-            border:1px solid #333644;border-radius:7px;
-            background:#171922;color:#dfe2eb;
-            font-size:16px;cursor:pointer;
-        }
+      if (!response.ok)
+        throw new Error(data.error?.message || response.status);
 
-        #${ID} .ptStat {
-            padding:10px;border-radius:10px;
-            background:linear-gradient(145deg,#171923,#0e0f15);
-            border:1px solid #292c38;
-        }
+      $("o").textContent =
+        data.choices?.[0]?.message?.content || "Sem resposta.";
 
-        #${ID} .ptLabel {
-            color:#858b9d;font-size:8px;
-            letter-spacing:.7px;font-weight:700;
-        }
-
-        #${ID} .ptNumber {
-            margin-top:5px;font-size:21px;
-            font-weight:850;letter-spacing:-.5px;
-            color:#f3f4f8;
-        }
-
-        #${ID} .ptAnalyze {
-            display:flex;align-items:center;justify-content:center;
-            gap:8px;width:100%;margin-top:9px;padding:11px 8px;
-            border:1px solid #e1e3eb;border-radius:9px;
-            background:linear-gradient(110deg,#f1f2f6,#bfc3d0);
-            color:#101116;font-size:10px;font-weight:850;
-            letter-spacing:.5px;cursor:pointer;
-        }
-
-        #${ID} .ptGrid {
-            display:grid;grid-template-columns:1fr 1fr;gap:7px;
-        }
-
-        #${ID} .ptTool {
-            min-width:0;padding:9px 5px;
-            border:1px solid #303340;border-radius:8px;
-            background:#151720;color:#d8dbe5;
-            font-size:9px;font-weight:650;
-            cursor:pointer;overflow-wrap:anywhere;
-        }
-
-        #${ID} button:disabled {opacity:.5}
-
-        #${ID} textarea:focus {border-color:#9298aa}
-        #${ID} button:active {filter:brightness(1.2)}
-    `;
-
-    document.documentElement.append(style, panel);
-
-    const $ = id => panel.querySelector("#" + id);
-
-    function setStatus(text, color) {
-        $("status").textContent = text;
-
-        if (color) {
-            $("ptDot").style.background = color;
-            $("ptDot").style.boxShadow = `0 0 10px ${color}77`;
-        }
+    } catch (error) {
+      $("o").textContent = "Erro: " + error.message;
     }
-
-    function showResult(text) {
-        $("result").style.display = "block";
-        $("result").textContent = text;
-    }
-
-    function readPage() {
-        if (state.destroyed) return;
-
-        try {
-            const clone = document.body.cloneNode(true);
-
-            clone.querySelectorAll(
-                "#" + ID +
-                ",script,style,noscript,svg,nav,footer,header,input,textarea,select"
-            ).forEach(el => el.remove());
-
-            const text = (clone.innerText || clone.textContent || "")
-                .split("\n")
-                .map(line => line.trim())
-                .filter(line => line.length > 2 && line.length < 1200)
-                .join("\n")
-                .slice(0, 18000);
-
-            if (!text) {
-                setStatus("Nenhum texto encontrado", "#e6bb75");
-                return;
-            }
-
-            const hash =
-                text.length + "|" +
-                text.slice(0, 180) + "|" +
-                text.slice(-180);
-
-            if (hash !== state.hash) {
-                state.hash = hash;
-                state.pages.push(text);
-
-                if (state.pages.length > 30) {
-                    state.pages.shift();
-                }
-            }
-
-            $("pages").textContent = state.pages.length;
-
-            const total = state.pages.reduce(
-                (sum, page) => sum + page.length, 0
-            );
-
-            $("chars").textContent =
-                total >= 10000
-                    ? (total / 1000).toFixed(1) + "k"
-                    : total;
-
-            setStatus("Leitor ativo", "#a5e6c0");
-        } catch (error) {
-            setStatus("Erro na leitura", "#ef7777");
-        }
-    }
-
-    function getContext() {
-        return state.pages
-            .slice(-12)
-            .join("\n\n--- Página capturada ---\n\n")
-            .slice(-14000);
-    }
-
-    function configureKey() {
-        const key = prompt(
-            "Cole sua chave da OpenRouter:",
-            state.key
-        );
-
-        if (key && key.trim()) {
-            state.key = key.trim();
-            sessionStorage.setItem("__portuga_or_key", state.key);
-            setStatus("API configurada", "#a5e6c0");
-        }
-    }
-
-    async function askAI() {
-        if (state.busy) return;
-
-        if (!state.key) {
-            configureKey();
-            if (!state.key) return;
-        }
-
-        const question = $("question").value.trim();
-
-        if (!question) {
-            setStatus("Digite sua pergunta", "#e6bb75");
-            $("question").focus();
-            return;
-        }
-
-        readPage();
-
-        state.busy = true;
-        $("ask").disabled = true;
-        $("ask").textContent = "ANALISANDO...";
-        setStatus("Consultando OpenRouter...", "#a5c8ff");
-
-        try {
-            const response = await fetch(
-                "https://openrouter.ai/api/v1/chat/completions",
-                {
-                    method: "POST",
-                    headers: {
-                        "Authorization": "Bearer " + state.key,
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": location.origin,
-                        "X-Title": "PORTUGA IA"
-                    },
-                    body: JSON.stringify({
-                        model: "openrouter/free",
-                        messages: [
-                            {
-                                role: "system",
-                                content:
-                                    "Você é um assistente educacional brasileiro. " +
-                                    "Ajude a interpretar textos e compreender perguntas. " +
-                                    "Responda em português claro e direto. " +
-                                    "Use o contexto fornecido e não invente informações. " +
-                                    "Se faltarem dados, informe isso."
-                            },
-                            {
-                                role: "user",
-                                content:
-                                    "TEXTO LIDO:\n" +
-                                    (getContext() || "Nenhum texto capturado.") +
-                                    "\n\nPERGUNTA:\n" + question
-                            }
-                        ],
-                        temperature: 0.2,
-                        max_tokens: 1200
-                    })
-                }
-            );
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(
-                    data?.error?.message || "HTTP " + response.status
-                );
-            }
-
-            const answer = data?.choices?.[0]?.message?.content;
-
-            if (!answer) {
-                throw new Error("A IA retornou uma resposta vazia.");
-            }
-
-            showResult(
-                Array.isArray(answer)
-                    ? answer.map(item => item.text || "").join("\n")
-                    : answer
-            );
-
-            setStatus("Análise concluída", "#a5e6c0");
-        } catch (error) {
-            showResult(
-                "ERRO NA CONSULTA\n\n" +
-                String(error.message || error).slice(0, 500) +
-                "\n\nConfira sua API key, conexão e disponibilidade do modelo."
-            );
-
-            setStatus("Falha na consulta", "#ef7777");
-        } finally {
-            state.busy = false;
-            $("ask").disabled = false;
-            $("ask").textContent = "✦ ANALISAR COM IA";
-        }
-    }
-
-    $("read").onclick = () => {
-        readPage();
-        setStatus("Leitura atualizada", "#a5e6c0");
-    };
-
-    $("ask").onclick = askAI;
-    $("key").onclick = configureKey;
-
-    $("clear").onclick = () => {
-        if (!confirm("Apagar todas as páginas guardadas?")) return;
-
-        state.pages = [];
-        state.hash = "";
-
-        $("pages").textContent = "0";
-        $("chars").textContent = "0";
-        $("result").style.display = "none";
-
-        setStatus("Memória apagada", "#e6bb75");
-    };
-
-    $("copy").onclick = async () => {
-        const text = getContext();
-
-        if (!text) {
-            setStatus("Nenhum texto guardado", "#e6bb75");
-            return;
-        }
-
-        try {
-            await navigator.clipboard.writeText(text);
-            setStatus("Texto copiado", "#a5e6c0");
-        } catch (error) {
-            showResult(text);
-            setStatus("Selecione e copie o texto", "#e6bb75");
-        }
-    };
-
-    $("min").onclick = () => {
-        state.minimized = !state.minimized;
-
-        $("body").style.display =
-            state.minimized ? "none" : "block";
-
-        $("min").textContent =
-            state.minimized ? "+" : "−";
-    };
-
-    function destroy() {
-        state.destroyed = true;
-        clearInterval(state.timer);
-        panel.remove();
-        style.remove();
-        sessionStorage.removeItem("__portuga_or_key");
-        delete window.__PORTUGA_IA;
-    }
-
-    $("close").onclick = destroy;
-
-    // Arrastar por toque ou mouse
-    let drag = null;
-    const head = $("head");
-
-    head.addEventListener("pointerdown", event => {
-        if (event.target.closest("button")) return;
-
-        const rect = panel.getBoundingClientRect();
-
-        drag = {
-            x: event.clientX - rect.left,
-            y: event.clientY - rect.top
-        };
-
-        panel.style.right = "auto";
-        panel.style.bottom = "auto";
-
-        head.setPointerCapture(event.pointerId);
-    });
-
-    head.addEventListener("pointermove", event => {
-        if (!drag) return;
-
-        panel.style.left = Math.max(
-            0,
-            Math.min(
-                innerWidth - panel.offsetWidth,
-                event.clientX - drag.x
-            )
-        ) + "px";
-
-        panel.style.top = Math.max(
-            0,
-            Math.min(
-                innerHeight - 40,
-                event.clientY - drag.y
-            )
-        ) + "px";
-    });
-
-    head.addEventListener("pointerup", () => drag = null);
-    head.addEventListener("pointercancel", () => drag = null);
-
-    state.timer = setInterval(readPage, 3000);
-    window.__PORTUGA_IA = { destroy };
-
-    readPage();
+  };
 })();
