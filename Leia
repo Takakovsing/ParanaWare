@@ -1,17 +1,12 @@
 (() => {
-  if (window.__arInit) {
-    console.log('[AR] Já está rodando.');
-    return;
-  }
+  if (window.__arInit) { console.log('[AR] Já rodando.'); return; }
   window.__arInit = true;
 
-  // ===================== CONFIG =====================
-  const CONFIG = {
-    intervaloMs: 5000,
-    apiKey: 'COLE_SUA_CHAVE_AQUI',
-    modelo: 'openai/gpt-4o-mini'
-  };
-  // ==================================================
+  // ============ CONFIG (padrão) ============
+  const API_KEY = 'COLE_SUA_CHAVE_AQUI';
+  const MODELO  = 'openrouter/auto';   // roteia automaticamente
+  const INTERVALO_MS = 5000;
+  // =========================================
 
   const respondidas = new Set();
   let ocupado = false;
@@ -27,32 +22,33 @@
     return s.display !== 'none' && s.visibility !== 'hidden';
   };
 
-  const normalizar = (s) => s
+  const limpar = (s) => s
     .toLowerCase()
     .replace(/[“”"'`´]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // ---------- IA ----------
+  // ---------- OpenRouter (padrão) ----------
   async function perguntarIA(pergunta, opcoes) {
-    const prompt =
-      'Pergunta: ' + pergunta + '\n\n' +
-      'Opções:\n' + opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n');
-
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + CONFIG.apiKey,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': location.origin,
-        'X-Title': 'AutoReader'
+        'Authorization': 'Bearer ' + API_KEY,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: CONFIG.modelo,
-        temperature: 0,
+        model: MODELO,
         messages: [
-          { role: 'system', content: 'Responda só com o texto exato de UMA alternativa, sem numeração, sem aspas, sem explicações.' },
-          { role: 'user', content: prompt }
+          {
+            role: 'system',
+            content: 'Responda questões de múltipla escolha retornando apenas o texto exato de uma das alternativas.'
+          },
+          {
+            role: 'user',
+            content:
+              'Pergunta: ' + pergunta + '\n\n' +
+              'Opções:\n' + opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n')
+          }
         ]
       })
     });
@@ -62,7 +58,7 @@
     return (data.choices?.[0]?.message?.content || '').trim();
   }
 
-  // ---------- detectar pergunta aberta ----------
+  // ---------- detectar pergunta ----------
   function detectarPergunta() {
     const radios = Array.from(document.querySelectorAll('md-radio-button.choice-radio-button'))
       .filter(visivel);
@@ -76,16 +72,13 @@
     }
     if (!container) container = document.body;
 
-    const linhas = (container.innerText || '')
-      .split('\n').map(s => s.trim()).filter(Boolean);
+    const linhas = (container.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
 
     let qIdx = linhas.findIndex(l => /^\d+\.-/.test(l));
     if (qIdx < 0) {
-      let melhor = -1, tam = 0;
-      linhas.forEach((l, i) => {
-        if (l.endsWith('?') && l.length > tam) { melhor = i; tam = l.length; }
-      });
-      qIdx = melhor;
+      let m = -1, t = 0;
+      linhas.forEach((l, i) => { if (l.endsWith('?') && l.length > t) { m = i; t = l.length; } });
+      qIdx = m;
     }
     if (qIdx < 0) return null;
 
@@ -104,7 +97,7 @@
   }
 
   // ---------- responder ----------
-  async function responderPergunta() {
+  async function responder() {
     const q = detectarPergunta();
     if (!q) return false;
 
@@ -114,12 +107,12 @@
     status('🤔 Pensando...');
 
     try {
-      const resposta = await perguntarIA(q.pergunta, q.opcoes);
-      const alvo = normalizar(resposta);
+      const resp = await perguntarIA(q.pergunta, q.opcoes);
+      const alvo = limpar(resp);
 
-      let idx = q.opcoes.findIndex(o => normalizar(o) === alvo);
-      if (idx < 0) idx = q.opcoes.findIndex(o => normalizar(o).includes(alvo) || alvo.includes(normalizar(o)));
-      if (idx < 0 && /^\d+$/.test(resposta.trim())) idx = parseInt(resposta.trim(), 10) - 1;
+      let idx = q.opcoes.findIndex(o => limpar(o) === alvo);
+      if (idx < 0) idx = q.opcoes.findIndex(o => limpar(o).includes(alvo) || alvo.includes(limpar(o)));
+      if (idx < 0 && /^\d+$/.test(resp.trim())) idx = parseInt(resp.trim(), 10) - 1;
 
       if (idx < 0 || idx >= q.radios.length) {
         status('⚠️ Sem match');
@@ -139,31 +132,25 @@
       status('✅ ' + (idx + 1) + '/' + q.radios.length);
       respondidas.add(chave);
     } catch (e) {
-      console.warn('[AR] Erro:', e);
+      console.warn('[AR]', e);
       status('❌ ' + e.message);
       respondidas.add(chave);
     }
     return true;
   }
 
-  // ---------- abrir modal pergunta ----------
-  function abrirPergunta() {
-    const btn = Array.from(document.querySelectorAll('button[aria-label="Pergunta"]'))
-      .find(visivel);
-    if (btn) { btn.click(); return true; }
+  // ---------- abrir pergunta ----------
+  function abrir() {
+    const b = Array.from(document.querySelectorAll('button[aria-label="Pergunta"]')).find(visivel);
+    if (b) { b.click(); return true; }
     return false;
   }
 
-  // ---------- próxima página ----------
-  function virarPagina() {
-    const btn =
-      document.querySelector('#right-page-btn') ||
-      document.querySelector('.page-switch-overlay-icon.embedded.next');
-
-    if (btn && !btn.disabled) {
-      btn.click();
-      return true;
-    }
+  // ---------- virar página ----------
+  function proxima() {
+    const b = document.querySelector('#right-page-btn')
+      || document.querySelector('.page-switch-overlay-icon.embedded.next');
+    if (b && !b.disabled) { b.click(); return true; }
     return false;
   }
 
@@ -172,12 +159,12 @@
     if (ocupado || !ligado) return;
     ocupado = true;
     try {
-      if (await responderPergunta()) return;
-      if (abrirPergunta()) return;
-      if (virarPagina()) status('➡️ Página');
+      if (await responder()) return;
+      if (abrir()) return;
+      if (proxima()) status('➡️ Página');
       else status('⏳ Aguardando');
     } catch (e) {
-      console.warn('[AR] Loop erro:', e);
+      console.warn('[AR]', e);
     } finally {
       ocupado = false;
     }
@@ -189,46 +176,26 @@
     if (el) el.textContent = txt;
   }
 
-  function criarUI() {
+  function ui() {
     if (document.getElementById('__arBox')) return;
-
     const box = document.createElement('div');
     box.id = '__arBox';
-    box.style.cssText = [
-      'position:fixed',
-      'top:10px',
-      'right:10px',
-      'z-index:999999',
-      'background:#111',
-      'color:#eee',
-      'font:12px/1.4 system-ui,sans-serif',
-      'padding:8px 10px',
-      'border-radius:10px',
-      'box-shadow:0 4px 14px rgba(0,0,0,.4)',
-      'display:flex',
-      'gap:8px',
-      'align-items:center',
-      'cursor:move',
-      'user-select:none'
-    ].join(';');
-
+    box.style.cssText = 'position:fixed;top:10px;right:10px;z-index:999999;background:#111;color:#eee;font:12px/1.4 system-ui,sans-serif;padding:8px 10px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.4);display:flex;gap:8px;align-items:center;cursor:move;user-select:none';
     box.innerHTML =
       '<button id="__arBtn" style="all:unset;padding:4px 10px;border-radius:6px;background:#0a0;color:#fff;font-weight:600;cursor:pointer">Iniciar</button>' +
       '<span id="__arStatus" style="opacity:.8">Pronto</span>' +
-      '<button id="__arClose" style="all:unset;cursor:pointer;opacity:.5;padding:0 4px">✕</button>';
-
+      '<button id="__arX" style="all:unset;cursor:pointer;opacity:.5;padding:0 4px">✕</button>';
     document.body.appendChild(box);
 
     document.getElementById('__arBtn').onclick = () => {
       ligado = !ligado;
-      const btn = document.getElementById('__arBtn');
-      btn.textContent = ligado ? 'Parar' : 'Iniciar';
-      btn.style.background = ligado ? '#c00' : '#0a0';
-
+      const b = document.getElementById('__arBtn');
+      b.textContent = ligado ? 'Parar' : 'Iniciar';
+      b.style.background = ligado ? '#c00' : '#0a0';
       if (ligado) {
         loop();
         if (timer) clearInterval(timer);
-        timer = setInterval(loop, CONFIG.intervaloMs);
+        timer = setInterval(loop, INTERVALO_MS);
       } else {
         if (timer) clearInterval(timer);
         timer = null;
@@ -236,32 +203,29 @@
       }
     };
 
-    document.getElementById('__arClose').onclick = () => {
+    document.getElementById('__arX').onclick = () => {
       if (timer) clearInterval(timer);
       box.remove();
       window.__arInit = false;
       ligado = false;
-      console.log('%c[AR] Removido.', 'color:#c00');
     };
 
-    // arrastar a janelinha
-    let dx = 0, dy = 0, arrastando = false;
+    let dx = 0, dy = 0, down = false;
     box.onmousedown = (e) => {
       if (e.target.tagName === 'BUTTON') return;
-      arrastando = true;
+      down = true;
       dx = e.clientX - box.offsetLeft;
       dy = e.clientY - box.offsetTop;
     };
     document.addEventListener('mousemove', (e) => {
-      if (!arrastando) return;
+      if (!down) return;
       box.style.left = (e.clientX - dx) + 'px';
       box.style.top = (e.clientY - dy) + 'px';
       box.style.right = 'auto';
     });
-    document.addEventListener('mouseup', () => { arrastando = false; });
+    document.addEventListener('mouseup', () => { down = false; });
   }
 
-  // ---------- start ----------
-  criarUI();
-  console.log('%c[AR] Pronto. Clique em "Iniciar" na caixinha.', 'color:#0a0;font-weight:bold');
+  ui();
+  console.log('%c[AR] Pronto. Clique em Iniciar.', 'color:#0a0;font-weight:bold');
 })();
