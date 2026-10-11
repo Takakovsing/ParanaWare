@@ -1,291 +1,300 @@
-(async function autoReaderFinal() {
+javascript:(async function autoReaderFinal() {
     if (window.__autoIA) {
         window.__autoIA.parar();
         return;
     }
 
-    // CONFIGURAÇÃO
     const SEGUNDOS_PAGINA = 5;
     const MAX_PAGINAS = 40;
-    const MAX_CONTEXTO = 12000;
-    const ESPERA_VERIFICACAO = 2500;
+    const MAX_CHARS = 12000;
 
-    let API_KEY = localStorage.getItem("__or_key");
+    let API_KEY = localStorage.getItem("__or_key") || "";
     if (!API_KEY) {
-        API_KEY = prompt("Chave OpenRouter:");
+        API_KEY = prompt("Cole sua chave OpenRouter:");
         if (!API_KEY) return;
         localStorage.setItem("__or_key", API_KEY);
     }
 
     const memoria = [];
     let ativo = true;
-    let paginas = 0;
     let contador = SEGUNDOS_PAGINA;
-    let processando = false;
-    let ultimaQuestao = "";
+    let paginasViradas = 0;
+    let ultimoHash = "";
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // PAINEL
     const painel = document.createElement("div");
+    painel.id = "__autoIA_painel";
     painel.style.cssText = `
-        position:fixed;bottom:20px;right:12px;z-index:2147483647;
-        width:260px;background:#111;color:#fff;padding:12px;
-        border:1px solid #444;border-radius:12px;
-        font:12px Arial;box-shadow:0 5px 25px #0009;
+        position:fixed;bottom:20px;right:20px;z-index:2147483647;
+        width:290px;background:#111;color:#fff;
+        font:12px/1.5 system-ui,sans-serif;padding:15px;
+        border:1px solid #333;border-radius:12px;
+        box-shadow:0 8px 30px #0009;user-select:none;
     `;
 
     painel.innerHTML = `
-        <b>🕸️ PORTUGA IA</b>
-        <button id="fechar" style="float:right">×</button>
-        <div id="estado" style="margin:12px 0;color:#aaa">Iniciando...</div>
-        <div id="tempo" style="font-size:26px;text-align:center">5</div>
-        <div id="mem" style="margin:8px 0;color:#aaa">Memória: 0 páginas</div>
-        <button id="repetir">🔄 DE NOVO</button>
-        <button id="chave">🔑</button>
-        <div id="resposta" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin-top:10px"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span id="__dot" style="width:10px;height:10px;background:#4caf50;
+            border-radius:50%;animation:__pulse 1s infinite"></span>
+            <strong id="__titulo">📖 Folheando</strong>
+            <span style="margin-left:auto;color:#888">PREMIUM</span>
+        </div>
+
+        <div id="__contador" style="font-size:34px;font-weight:800;
+        text-align:center;color:#4caf50;padding:4px">5</div>
+
+        <div style="height:4px;background:#292929;border-radius:9px;overflow:hidden">
+            <div id="__barra" style="height:100%;width:100%;background:#4caf50;
+            transition:width .3s"></div>
+        </div>
+
+        <div id="__mensagem" style="margin:10px 0;color:#ccc;min-height:35px;
+        white-space:pre-wrap">Iniciando leitura...</div>
+
+        <div style="background:#1b1b1b;border-radius:7px;padding:9px;
+        margin-bottom:10px">
+            📄 Páginas visitadas: <b id="__total">0</b><br>
+            🧠 Memória: <b id="__mem" style="color:#4caf50">0 caracteres</b>
+        </div>
+
+        <div style="display:flex;gap:6px;margin-bottom:7px">
+            <button id="__btnRepetir" style="flex:2;background:#ff9800;color:white;
+            border:0;padding:9px;border-radius:6px;font-weight:bold">
+                🔄 DE NOVO
+            </button>
+            <button id="__btnKey" style="flex:1;background:#292929;color:white;
+            border:1px solid #444;padding:9px;border-radius:6px">
+                🔑
+            </button>
+        </div>
+
+        <button id="__btnParar" style="width:100%;background:#e53955;color:white;
+        border:0;padding:9px;border-radius:6px;font-weight:bold">
+            ⏹ PARAR
+        </button>
+
+        <style>
+            @keyframes __pulse {
+                0%,100% {opacity:1;transform:scale(1)}
+                50% {opacity:.4;transform:scale(1.3)}
+            }
+            #__autoIA_painel button {cursor:pointer}
+            #__autoIA_painel button:active {transform:scale(.98)}
+        </style>
     `;
 
     document.body.appendChild(painel);
 
-    const $ = id => painel.querySelector("#" + id);
+    const $ = id => painel.querySelector("#__" + id);
 
-    function parar() {
-        ativo = false;
-        painel.remove();
-        delete window.__autoIA;
+    function status(txt) {
+        $("mensagem").textContent = txt;
     }
 
-    $("fechar").onclick = parar;
-
-    $("chave").onclick = () => {
-        const nova = prompt("Nova chave OpenRouter:", API_KEY);
-        if (nova?.trim()) {
-            API_KEY = nova.trim();
-            localStorage.setItem("__or_key", API_KEY);
-        }
-    };
-
-    function textoVisivel() {
-        return document.body.innerText || "";
+    function setModo(nome) {
+        $("titulo").textContent = nome;
+        const lendo = nome.includes("Folheando");
+        $("dot").style.background = lendo ? "#4caf50" : "#2196f3";
+        $("contador").style.color = lendo ? "#4caf50" : "#2196f3";
     }
 
-    // MEMÓRIA DE PÁGINAS
-    function guardarPagina() {
-        const texto = textoVisivel()
+    function capturarTexto() {
+        const clone = document.body.cloneNode(true);
+
+        clone.querySelectorAll(
+            "#__autoIA_painel,script,style,nav,header,footer"
+        ).forEach(el => el.remove());
+
+        return (clone.innerText || "")
             .split("\n")
             .map(s => s.trim())
             .filter(s => s.length > 2 && s.length < 800)
-            .filter(s => !/^(play|pausar|terminar|pesquisa)$/i.test(s))
+            .filter(s => !/^(próxima página|página anterior|terminar)$/i.test(s))
             .join("\n");
+    }
 
-        if (!texto || memoria[memoria.length - 1] === texto) return;
+    function guardarPagina() {
+        const texto = capturarTexto();
+        if (!texto || texto.length < 20) return;
 
+        const hash = texto.length + "|" + texto.slice(0, 100) +
+            "|" + texto.slice(-100);
+
+        if (hash === ultimoHash) return;
+
+        ultimoHash = hash;
         memoria.push(texto);
 
-        while (memoria.length > MAX_PAGINAS) {
-            memoria.shift();
-        }
+        while (memoria.length > MAX_PAGINAS) memoria.shift();
 
-        $("mem").textContent = "Memória: " + memoria.length + " páginas";
+        const total = memoria.reduce((s, p) => s + p.length, 0);
+        $("mem").textContent = total + " caracteres";
     }
 
-    function contexto() {
-        return memoria.join("\n\n---\n\n").slice(-MAX_CONTEXTO);
+    function obterContexto() {
+        return memoria.join("\n\n--- Página seguinte ---\n\n")
+            .slice(-MAX_CHARS);
     }
 
-    // DETECTAR QUESTÃO DO NUBEREADER
-    function radiosVisiveis() {
-        return [...document.querySelectorAll("md-radio-button")]
-            .filter(r => r.getClientRects().length > 0);
-    }
+    function avancarPagina() {
+        const seletores = [
+            "#right-page-btn",
+            ".page-switch-overlay-icon.next",
+            ".page-switch-overlay-icon.embedded.next",
+            '[aria-label="Next page"]',
+            '[aria-label="Próxima página"]',
+            'button[title="Next page"]'
+        ];
 
-    function acharContainerQuestao() {
-        const radios = radiosVisiveis();
-        if (!radios.length) return null;
+        for (const seletor of seletores) {
+            const el = document.querySelector(seletor);
+            if (!el || el.disabled) continue;
 
-        let el = radios[0].parentElement;
+            const estilo = getComputedStyle(el);
+            if (estilo.display === "none" ||
+                estilo.visibility === "hidden") continue;
 
-        for (let i = 0; el && i < 12; i++, el = el.parentElement) {
-            const rs = radios.filter(r => el.contains(r));
-            const t = (el.innerText || "").trim();
-
-            if (
-                rs.length >= 2 &&
-                t.includes("?") &&
-                t.length > 60 &&
-                t.length < 12000
-            ) {
-                return el;
+            if (el.getClientRects().length) {
+                el.click();
+                return true;
             }
         }
 
-        return null;
+        document.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            code: "ArrowRight",
+            keyCode: 39,
+            which: 39,
+            bubbles: true
+        }));
+
+        return false;
     }
 
-    function extrairQuestao(container) {
-        const radios = [...container.querySelectorAll("md-radio-button")]
-            .filter(r => r.getClientRects().length > 0);
+    async function consultarIA(pergunta) {
+        const contexto = obterContexto();
 
-        const opcoes = radios.map(r =>
-            (r.innerText || r.getAttribute("aria-label") || "")
-                .trim().replace(/\s+/g, " ")
-        ).filter(Boolean);
-
-        const linhas = (container.innerText || "")
-            .split("\n")
-            .map(s => s.trim())
-            .filter(Boolean);
-
-        const pergunta = linhas.find(s =>
-            s.includes("?") &&
-            !/tentativas restantes|resposta correta/i.test(s)
-        );
-
-        return { pergunta, opcoes, radios };
-    }
-
-    function radioSelecionado(radios) {
-        return radios.find(r =>
-            r.getAttribute("aria-checked") === "true" ||
-            r.classList.contains("md-checked")
-        );
-    }
-
-    // CONSULTA À IA
-    async function consultarIA(pergunta, opcoes) {
-        const prompt = `
-Ajude a compreender a questão de leitura abaixo.
-Use o texto de apoio e explique brevemente o raciocínio.
-Indique a alternativa mais bem sustentada pelo texto.
-
-TEXTO DE APOIO:
-${contexto()}
-
-PERGUNTA:
-${pergunta}
-
-ALTERNATIVAS:
-${opcoes.map((o, i) => `${i + 1}. ${o}`).join("\n")}
-
-Termine com: ALTERNATIVA: N
-`;
-
-        const r = await fetch(
+        const resposta = await fetch(
             "https://openrouter.ai/api/v1/chat/completions",
             {
                 method: "POST",
                 headers: {
-                    Authorization: "Bearer " + API_KEY,
-                    "Content-Type": "application/json"
+                    "Authorization": "Bearer " + API_KEY,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": location.origin,
+                    "X-Title": "Leitor de Estudos"
                 },
                 body: JSON.stringify({
                     model: "openrouter/free",
-                    messages: [{ role: "user", content: prompt }],
-                    temperature: 0,
-                    max_tokens: 500
+                    messages: [
+                        {
+                            role: "system",
+                            content:
+                                "Você é um tutor. Explique o conteúdo de forma clara, " +
+                                "use o texto de apoio quando relevante e não invente informações."
+                        },
+                        {
+                            role: "user",
+                            content:
+                                "Texto de apoio:\n" + contexto +
+                                "\n\nPergunta para estudar:\n" + pergunta +
+                                "\n\nExplique o raciocínio e a resposta."
+                        }
+                    ],
+                    temperature: 0.2,
+                    max_tokens: 700
                 })
             }
         );
 
-        const d = await r.json();
-
-        if (!r.ok) {
-            throw new Error(d.error?.message || "HTTP " + r.status);
+        if (!resposta.ok) {
+            throw new Error("OpenRouter HTTP " + resposta.status);
         }
 
-        return d.choices?.[0]?.message?.content || "A IA não retornou resposta.";
+        const dados = await resposta.json();
+        return dados.choices?.[0]?.message?.content ||
+            "A IA não retornou uma resposta.";
     }
 
-    // ANALISAR QUESTÃO
-    async function resolver(container) {
-        if (processando || !ativo) return;
+    async function perguntar() {
+        const pergunta = prompt("Digite a pergunta para a IA:");
+        if (!pergunta) return;
 
-        processando = true;
-        $("estado").textContent = "🧠 Analisando questão...";
+        setModo("🧠 Consultando IA...");
+        status("Analisando o texto guardado...");
 
         try {
-            const { pergunta, opcoes, radios } = extrairQuestao(container);
-
-            if (!pergunta || opcoes.length < 2) {
-                $("resposta").textContent = "Não foi possível identificar a pergunta e as alternativas.";
-                return;
-            }
-
-            const resposta = await consultarIA(pergunta, opcoes);
-
-            const match = resposta.match(/ALTERNATIVA\s*:\s*(\d+)/i);
-            const numero = match ? Number(match[1]) : 0;
-
-            $("resposta").textContent =
-                resposta +
-                (numero >= 1 && numero <= opcoes.length
-                    ? "\n\nAlternativa sugerida: " + numero +
-                      "\n" + opcoes[numero - 1]
-                    : "\n\nNão consegui identificar o número da alternativa.");
-
-            $("estado").textContent = "Resposta recebida";
-
-            // Espera 2,5 segundos e verifica a seleção atual.
-            await sleep(ESPERA_VERIFICACAO);
-            if (!ativo) return;
-
-            const selecionado = radioSelecionado(radios);
-
-            if (!selecionado) {
-                $("estado").textContent = "⚠️ Nenhuma alternativa selecionada";
-            } else {
-                const texto = (selecionado.innerText || "")
-                    .trim().replace(/\s+/g, " ");
-
-                $("estado").textContent = "Seleção detectada: " + texto.slice(0, 100);
-            }
+            const resultado = await consultarIA(pergunta);
+            status(resultado);
         } catch (e) {
-            $("estado").textContent = "Erro: " + e.message;
+            status("Erro: " + e.message);
         } finally {
-            processando = false;
+            setModo("📖 Folheando");
         }
     }
 
-    $("repetir").onclick = () => {
-        const container = acharContainerQuestao();
+    function parar() {
+        ativo = false;
+        window.__autoIA = null;
+        painel.remove();
+    }
 
-        if (!container) {
-            $("estado").textContent = "Nenhuma questão encontrada.";
-            return;
+    $("btnParar").onclick = parar;
+    $("btnKey").onclick = () => {
+        const nova = prompt("Nova chave OpenRouter:", API_KEY);
+        if (nova && nova.trim()) {
+            API_KEY = nova.trim();
+            localStorage.setItem("__or_key", API_KEY);
+            status("Chave atualizada.");
         }
-
-        resolver(container);
     };
 
-    // LOOP PRINCIPAL
+    $("btnRepetir").onclick = perguntar;
+
     window.__autoIA = { parar };
 
-    while (ativo) {
+    try {
+        status("Guardando o conteúdo da página...");
         guardarPagina();
 
-        const container = acharContainerQuestao();
+        while (ativo) {
+            guardarPagina();
+            $("total").textContent = paginasViradas;
 
-        if (container) {
-            const texto = (container.innerText || "").trim();
+            $("contador").textContent = contador;
+            $("barra").style.width =
+                (contador / SEGUNDOS_PAGINA * 100) + "%";
 
-            if (texto && texto !== ultimaQuestao && !processando) {
-                ultimaQuestao = texto;
-                await resolver(container);
+            await sleep(1000);
+            if (!ativo) break;
+
+            contador--;
+
+            if (contador <= 0) {
+                guardarPagina();
+
+                const antes = capturarTexto();
+                avancarPagina();
+
+                await sleep(1200);
+                guardarPagina();
+
+                const depois = capturarTexto();
+
+                if (depois !== antes) {
+                    paginasViradas++;
+                    $("total").textContent = paginasViradas;
+                    status("Página nova guardada na memória.");
+                } else {
+                    status("Aguardando mudança de página...");
+                }
+
+                contador = SEGUNDOS_PAGINA;
             }
         }
-
-        if (!ativo) break;
-
-        $("tempo").textContent = contador;
-        await sleep(1000);
-
-        contador--;
-
-        if (contador <= 0) {
-            contador = SEGUNDOS_PAGINA;
-            $("tempo").textContent = contador;
-            $("estado").textContent = "📖 Aguardando próxima página...";
-        }
+    } catch (e) {
+        console.error(e);
+        status("Erro: " + e.message);
     }
 })();
