@@ -15,101 +15,128 @@
         minimized: false
     };
 
-    const old = document.getElementById(ID);
-    if (old) old.remove();
-
     const panel = document.createElement("div");
     panel.id = ID;
+
     panel.style.cssText = `
-        position:fixed;right:12px;bottom:12px;
-        width:min(360px,calc(100vw - 24px));
-        max-height:82vh;overflow:auto;z-index:2147483647;
-        background:rgba(12,13,17,.97);color:#f5f5f7;
-        border:1px solid #373943;border-radius:17px;
-        box-shadow:0 12px 55px #000b;
-        font:13px/1.5 system-ui,sans-serif;
-        backdrop-filter:blur(18px);
+        position:fixed;
+        right:8px;
+        bottom:8px;
+        width:180px;
+        max-width:calc(100vw - 16px);
+        max-height:45vh;
+        overflow:auto;
+        z-index:2147483647;
+        background:rgba(12,13,17,.97);
+        color:#f5f5f7;
+        border:1px solid #373943;
+        border-radius:12px;
+        box-shadow:0 5px 25px #0009;
+        font:10px/1.4 system-ui,sans-serif;
+        backdrop-filter:blur(15px);
     `;
 
     panel.innerHTML = `
         <div id="head" style="
-            padding:14px;display:flex;align-items:center;
-            gap:9px;cursor:move;background:linear-gradient(110deg,#242630,#101116);
-            border-bottom:1px solid #343640;touch-action:none">
-            <span style="font-size:22px">🕸️</span>
-            <div style="flex:1">
-                <b style="font-size:15px;letter-spacing:1px">
-                    PORTUGA <span style="color:#aaa">IA</span>
-                </b>
-                <div style="font-size:10px;color:#aaa">
-                    REDAÇÃO PARANÁ • READER
-                </div>
+            display:flex;align-items:center;gap:5px;
+            padding:7px;background:linear-gradient(110deg,#242630,#101116);
+            border-bottom:1px solid #343640;
+            cursor:move;touch-action:none">
+            <span style="font-size:14px">🕸️</span>
+            <div style="flex:1;min-width:0">
+                <b style="font-size:11px">PORTUGA IA</b>
+                <div style="font-size:8px;color:#aaa">READER PREMIUM</div>
             </div>
-            <button id="min">—</button>
+            <button id="min">−</button>
             <button id="close">×</button>
         </div>
 
-        <div id="body" style="padding:14px">
-            <div id="status" style="color:#ccc;margin-bottom:12px">
-                Leitor inicializando...
+        <div id="body" style="padding:7px">
+            <div id="status" style="color:#bdbdc7;margin-bottom:7px">
+                ● Leitor ativo
             </div>
 
-            <div style="display:flex;gap:8px;margin-bottom:12px">
-                <div style="flex:1;background:#202128;padding:10px;border-radius:10px">
-                    <small style="color:#aaa">PÁGINAS</small>
-                    <div id="pages" style="font-size:22px;font-weight:bold">0</div>
+            <div style="display:flex;gap:5px;margin-bottom:7px">
+                <div style="flex:1;background:#202128;padding:5px;border-radius:6px">
+                    <div style="font-size:8px;color:#aaa">PÁGINAS</div>
+                    <div id="pages" style="font-size:14px;font-weight:bold">0</div>
                 </div>
-                <div style="flex:1;background:#202128;padding:10px;border-radius:10px">
-                    <small style="color:#aaa">MEMÓRIA</small>
-                    <div id="chars" style="font-size:22px;font-weight:bold">0</div>
+                <div style="flex:1;background:#202128;padding:5px;border-radius:6px">
+                    <div style="font-size:8px;color:#aaa">MEMÓRIA</div>
+                    <div id="chars" style="font-size:14px;font-weight:bold">0</div>
                 </div>
             </div>
 
-            <textarea id="question" placeholder="Escreva sua pergunta para a IA..."
-                style="box-sizing:border-box;width:100%;height:80px;
+            <textarea id="question"
+                placeholder="Digite sua pergunta..."
+                style="box-sizing:border-box;width:100%;height:45px;
                 resize:vertical;background:#191a20;color:white;
-                border:1px solid #41434e;border-radius:10px;
-                padding:10px;font:13px system-ui"></textarea>
+                border:1px solid #41434e;border-radius:7px;
+                padding:6px;font:10px system-ui"></textarea>
 
             <button id="ask" class="main">
                 ✦ ANALISAR COM IA
             </button>
 
             <div class="buttons">
-                <button id="read">↻ LER AGORA</button>
-                <button id="key">⚙ API KEY</button>
-                <button id="clear">⌫ LIMPAR MEMÓRIA</button>
-                <button id="copy">▣ COPIAR TEXTO</button>
+                <button id="read">↻ LER</button>
+                <button id="key">⚙ API</button>
+                <button id="clear">⌫ LIMPAR</button>
+                <button id="copy">▣ COPIAR</button>
             </div>
 
             <div id="result" style="
                 display:none;white-space:pre-wrap;overflow-wrap:anywhere;
-                margin-top:12px;padding:11px;border:1px solid #333540;
-                background:#17181e;border-radius:10px;max-height:230px;overflow:auto">
+                margin-top:7px;padding:7px;border:1px solid #333540;
+                background:#17181e;border-radius:7px;max-height:120px;overflow:auto">
             </div>
 
-            <div style="margin-top:10px;font-size:10px;color:#888">
-                Leitura automática • Análise manual
+            <div style="margin-top:6px;font-size:8px;color:#777">
+                PORTUGA IA • v2.0
             </div>
         </div>
     `;
 
     const style = document.createElement("style");
+
     style.textContent = `
         #${ID} button {
-            cursor:pointer;background:#292a32;color:white;
-            border:1px solid #41434c;border-radius:8px;
-            padding:9px;font-size:11px;
+            cursor:pointer;
+            background:#292a32;
+            color:white;
+            border:1px solid #41434c;
+            border-radius:6px;
+            padding:5px 3px;
+            font-size:9px;
+            touch-action:manipulation;
         }
+
         #${ID} .main {
-            width:100%;margin-top:9px;background:#eee;color:#111;
-            padding:11px;font-weight:bold;border:0;
+            width:100%;
+            margin-top:6px;
+            background:#eee;
+            color:#111;
+            padding:7px 3px;
+            font-size:10px;
+            font-weight:bold;
+            border:0;
         }
+
         #${ID} .buttons {
-            display:grid;grid-template-columns:1fr 1fr;
-            gap:7px;margin-top:8px;
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:5px;
+            margin-top:6px;
         }
-        #${ID} button:disabled {opacity:.5}
+
+        #${ID} button:disabled {
+            opacity:.5;
+        }
+
+        #${ID} textarea:focus {
+            border-color:#aaa;
+            outline:none;
+        }
     `;
 
     document.documentElement.append(style, panel);
@@ -125,12 +152,14 @@
         $("result").textContent = text;
     }
 
+    // LEITURA AUTOMÁTICA
     function readPage() {
         try {
             const clone = document.body.cloneNode(true);
 
             clone.querySelectorAll(
-                "#" + ID + ",script,style,noscript,svg,nav,footer,header,input,textarea,select"
+                "#" + ID +
+                ",script,style,noscript,svg,nav,footer,header,input,textarea,select"
             ).forEach(el => el.remove());
 
             const text = (clone.innerText || clone.textContent || "")
@@ -163,36 +192,39 @@
             );
 
             $("chars").textContent =
-                total > 9999
+                total >= 10000
                     ? (total / 1000).toFixed(1) + "k"
                     : total;
 
-            setStatus("Leitor ativo • " + new Date().toLocaleTimeString());
+            setStatus("● Leitor ativo");
         } catch (error) {
-            setStatus("Erro ao ler a página.");
+            setStatus("Erro na leitura");
         }
     }
 
+    // MEMÓRIA
     function getContext() {
         return state.pages
             .slice(-12)
-            .join("\n\n--- Página capturada ---\n\n")
+            .join("\n\n--- Página ---\n\n")
             .slice(-14000);
     }
 
+    // CONFIGURAÇÃO DA API
     function configureKey() {
         const key = prompt(
-            "Cole sua chave da OpenRouter:",
+            "Cole sua chave OpenRouter:",
             state.key
         );
 
         if (key && key.trim()) {
             state.key = key.trim();
             sessionStorage.setItem("__portuga_or_key", state.key);
-            setStatus("API configurada nesta sessão.");
+            setStatus("● API configurada");
         }
     }
 
+    // ANÁLISE COM IA
     async function askAI() {
         if (state.busy) return;
 
@@ -204,7 +236,7 @@
         const question = $("question").value.trim();
 
         if (!question) {
-            setStatus("Escreva uma pergunta primeiro.");
+            setStatus("Digite sua pergunta");
             $("question").focus();
             return;
         }
@@ -214,7 +246,7 @@
         state.busy = true;
         $("ask").disabled = true;
         $("ask").textContent = "ANALISANDO...";
-        setStatus("Consultando a OpenRouter...");
+        setStatus("Consultando IA...");
 
         try {
             const response = await fetch(
@@ -225,7 +257,7 @@
                         "Authorization": "Bearer " + state.key,
                         "Content-Type": "application/json",
                         "HTTP-Referer": location.origin,
-                        "X-Title": "PORTUGA IA Reader"
+                        "X-Title": "PORTUGA IA"
                     },
                     body: JSON.stringify({
                         model: "openrouter/free",
@@ -234,15 +266,15 @@
                                 role: "system",
                                 content:
                                     "Você é um assistente educacional brasileiro. " +
-                                    "Ajude o estudante a compreender textos e perguntas. " +
-                                    "Responda em português claro e direto. " +
-                                    "Use o contexto disponível e não invente informações. " +
-                                    "Se faltarem dados, informe isso."
+                                    "Ajude a interpretar textos e compreender perguntas. " +
+                                    "Responda em português, com clareza e objetividade. " +
+                                    "Use o contexto fornecido, não invente fatos e " +
+                                    "avise quando faltar informação."
                             },
                             {
                                 role: "user",
                                 content:
-                                    "CONTEXTO DA LEITURA:\n" +
+                                    "TEXTO LIDO:\n" +
                                     (getContext() || "Nenhum texto capturado.") +
                                     "\n\nPERGUNTA:\n" + question
                             }
@@ -264,7 +296,7 @@
             const answer = data?.choices?.[0]?.message?.content;
 
             if (!answer) {
-                throw new Error("A IA retornou uma resposta vazia.");
+                throw new Error("Resposta vazia da IA");
             }
 
             showResult(
@@ -273,15 +305,16 @@
                     : answer
             );
 
-            setStatus("Análise concluída.");
+            setStatus("● Análise concluída");
+
         } catch (error) {
             showResult(
-                "Falha na consulta:\n" +
-                String(error.message || error) +
-                "\n\nVerifique a conexão, a chave e a disponibilidade do modelo."
+                "ERRO:\n" +
+                String(error.message || error).slice(0, 500) +
+                "\n\nConfira sua API key, conexão e modelo."
             );
 
-            setStatus("Erro na consulta à IA.");
+            setStatus("Falha na consulta");
         } finally {
             state.busy = false;
             $("ask").disabled = false;
@@ -289,12 +322,17 @@
         }
     }
 
-    $("read").onclick = readPage;
+    // BOTÕES
+    $("read").onclick = () => {
+        readPage();
+        setStatus("● Leitura atualizada");
+    };
+
     $("ask").onclick = askAI;
     $("key").onclick = configureKey;
 
     $("clear").onclick = () => {
-        if (!confirm("Apagar todas as páginas guardadas?")) return;
+        if (!confirm("Apagar a memória de leitura?")) return;
 
         state.pages = [];
         state.hash = "";
@@ -302,25 +340,38 @@
         $("pages").textContent = "0";
         $("chars").textContent = "0";
 
-        setStatus("Memória apagada.");
+        setStatus("Memória apagada");
     };
 
     $("copy").onclick = async () => {
+        const text = getContext();
+
+        if (!text) {
+            setStatus("Nenhum texto guardado");
+            return;
+        }
+
         try {
-            await navigator.clipboard.writeText(getContext());
-            setStatus("Texto copiado.");
+            await navigator.clipboard.writeText(text);
+            setStatus("Texto copiado");
         } catch (error) {
-            showResult(getContext() || "Nenhum texto capturado.");
-            setStatus("Selecione e copie o texto exibido.");
+            showResult(text);
+            setStatus("Copie o texto exibido");
         }
     };
 
+    // MINIMIZAR
     $("min").onclick = () => {
         state.minimized = !state.minimized;
-        $("body").style.display = state.minimized ? "none" : "block";
-        $("min").textContent = state.minimized ? "+" : "—";
+
+        $("body").style.display =
+            state.minimized ? "none" : "block";
+
+        $("min").textContent =
+            state.minimized ? "+" : "−";
     };
 
+    // FECHAR E LIMPAR
     function destroy() {
         clearInterval(state.timer);
         panel.remove();
@@ -331,7 +382,7 @@
 
     $("close").onclick = destroy;
 
-    // Arrastar o painel com mouse ou toque.
+    // ARRASTAR COM TOQUE OU MOUSE
     let drag = null;
     const head = $("head");
 
@@ -356,21 +407,28 @@
 
         panel.style.left = Math.max(
             0,
-            Math.min(innerWidth - panel.offsetWidth, event.clientX - drag.x)
+            Math.min(
+                innerWidth - panel.offsetWidth,
+                event.clientX - drag.x
+            )
         ) + "px";
 
         panel.style.top = Math.max(
             0,
-            Math.min(innerHeight - 45, event.clientY - drag.y)
+            Math.min(
+                innerHeight - 40,
+                event.clientY - drag.y
+            )
         ) + "px";
     });
 
     head.addEventListener("pointerup", () => drag = null);
     head.addEventListener("pointercancel", () => drag = null);
 
+    // INICIAR
     state.timer = setInterval(readPage, 3000);
-
     window.__PORTUGA_IA = { destroy };
 
     readPage();
+
 })();
