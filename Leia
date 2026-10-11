@@ -343,4 +343,4 @@
   status('Pronto');
   refreshBuf();
   console.log('[Auto Leitor] Completo. Pronto.');
-})();
+})(); 
