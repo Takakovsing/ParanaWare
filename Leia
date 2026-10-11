@@ -5,19 +5,28 @@
   // ============ CONFIG ============
   const MODELO = 'openrouter/auto';
   const INTERVALO_MS = 5000;
-  const MAX_PAGINAS = 4;        // quantas páginas manter no contexto
-  const MAX_CHARS_PAGINA = 1500; // corta páginas muito longas
+  const MAX_PAGINAS = 4;
+  const MAX_CHARS_PAGINA = 1500;
   let API_KEY = localStorage.getItem('__arKey') || '';
   // ================================
 
   const respondidas = new Set();
-  const bufferPaginas = [];     // histórico de páginas lidas
+  const bufferPaginas = [];
   let ultimaPaginaLida = '';
   let ocupado = false;
   let ligado = false;
   let timer = null;
 
   // ---------- helpers ----------
+  const naTela = (el) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) return false;
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.1) return false;
+    return true;
+  };
   const visivel = (el) => {
     if (!el) return false;
     const r = el.getBoundingClientRect();
@@ -28,37 +37,27 @@
   const limpar = (s) => s.toLowerCase().replace(/[“”"'`´]/g, '').replace(/\s+/g, ' ').trim();
   const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 
-  const acharBotao = (texto) => Array.from(document.querySelectorAll('button'))
-    .find(b => new RegExp('^\\s*' + texto + '\\s*$', 'i').test(b.innerText || '') && visivel(b) && !b.disabled);
+  const acharBotao = (texto, dentro) => Array.from((dentro || document).querySelectorAll('button'))
+    .find(b => new RegExp('^\\s*' + texto + '\\s*$', 'i').test(b.innerText || '') && naTela(b) && !b.disabled);
 
-  // ---------- LEITURA DE PÁGINA ----------
+  // ---------- leitura de página ----------
   function lerPagina() {
-    // clona o body e remove tudo que é UI
     const clone = document.body.cloneNode(true);
     clone.querySelectorAll(
-      'button, input, select, md-icon, svg, ' +
-      'md-dialog, md-backdrop, .md-dialog-container, ' +
-      '[class*="controls"], [class*="toolbar"], [class*="tooltip"], ' +
-      '[class*="overlay"], [class*="switch-overlay"], ' +
-      '.step-wizard, .finish-btn, .md-icon-button, ' +
-      '[class*="header"], [class*="footer"], [class*="sidebar"], ' +
-      '[class*="tts"], [class*="toast"]'
+      'button, input, select, md-icon, svg, md-dialog, md-backdrop, .md-dialog-container, ' +
+      '[class*="controls"], [class*="toolbar"], [class*="tooltip"], [class*="overlay"], ' +
+      '[class*="switch-overlay"], .step-wizard, .finish-btn, .md-icon-button, ' +
+      '[class*="header"], [class*="footer"], [class*="sidebar"], [class*="tts"], [class*="toast"]'
     ).forEach(e => e.remove());
 
-    let txt = (clone.innerText || '')
-      .split('\n').map(s => s.trim()).filter(Boolean).join('\n');
-
-    // remove linhas que são claramente UI/metadados do leitor
-    txt = txt.split('\n')
+    return (clone.innerText || '')
+      .split('\n').map(s => s.trim()).filter(Boolean)
       .filter(l => !/^\d+%$/.test(l))
       .filter(l => !/^\d+x$/.test(l))
       .filter(l => !/páginas? para terminar/i.test(l))
       .filter(l => !/^As aventuras de Mike/i.test(l))
       .filter(l => l.length > 2)
-      .join('\n')
-      .trim();
-
-    return txt;
+      .join('\n').trim();
   }
 
   function atualizarBuffer() {
@@ -66,66 +65,59 @@
     const txt = lerPagina();
     if (!txt || txt.length < 40) return;
     if (txt === ultimaPaginaLida) return;
-
     ultimaPaginaLida = txt;
     bufferPaginas.push(txt.slice(0, MAX_CHARS_PAGINA));
     if (bufferPaginas.length > MAX_PAGINAS) bufferPaginas.shift();
-
-    console.log('%c[AR] Página lida (' + txt.length + ' chars). Buffer: ' + bufferPaginas.length,
-      'color:#888');
     status('📖 ' + bufferPaginas.length + ' pág.');
   }
 
   // ---------- OpenRouter ----------
   async function perguntarIA(pergunta, opcoes, contexto) {
     if (!API_KEY) throw new Error('sem chave');
-
     const ctx = contexto && contexto.length
-      ? 'Contexto do livro (últimas páginas lidas):\n"""\n' +
-        contexto.join('\n---\n') +
-        '\n"""\n\n'
+      ? 'Contexto do livro (últimas páginas lidas):\n"""\n' + contexto.join('\n---\n') + '\n"""\n\n'
       : '';
-
-    const prompt =
-      ctx +
-      'Pergunta: ' + pergunta + '\n\n' +
-      'Opções:\n' + opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n');
+    const prompt = ctx + 'Pergunta: ' + pergunta + '\n\nOpções:\n' +
+      opcoes.map((o, i) => (i + 1) + '. ' + o).join('\n');
 
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + API_KEY,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: MODELO,
         messages: [
-          { role: 'system', content: 'Você responde questões de múltipla escolha sobre um livro. Use o contexto fornecido. Retorne apenas o texto exato de uma das alternativas.' },
+          { role: 'system', content: 'Você responde questões de múltipla escolha sobre um livro. Use o contexto. Retorne apenas o texto exato de uma das alternativas.' },
           { role: 'user', content: prompt }
         ]
       })
     });
     if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
-    const data = await res.json();
-    return (data.choices?.[0]?.message?.content || '').trim();
+    return ((await res.json()).choices?.[0]?.message?.content || '').trim();
   }
 
-  // ---------- detectar pergunta ----------
+  // ---------- achar container da questão ativa ----------
+  function acharContainerQuestao(radio) {
+    let el = radio, achado = null;
+    while (el && el !== document.body) {
+      const txt = el.innerText || '';
+      const marcadores = (txt.match(/^\s*\d+\.\s*-\s/gm) || []).length;
+      if (marcadores === 1) { achado = el; break; }
+      if (marcadores > 1) break; // container-pai pegou outras questões: para
+      el = el.parentElement;
+    }
+    return achado || radio.closest('md-dialog') || document.body;
+  }
+
+  // ---------- detectar pergunta (só a ativa) ----------
   function detectarPergunta() {
     const radios = Array.from(document.querySelectorAll('md-radio-button.choice-radio-button'))
-      .filter(visivel);
+      .filter(naTela);
     if (!radios.length) return null;
 
-    let container = radios[0];
-    for (let i = 0; i < 12 && container; i++) {
-      const t = container.innerText || '';
-      if (/Tentativas|Terminar/i.test(t) && t.split('\n').length >= 4) break;
-      container = container.parentElement;
-    }
-    if (!container) container = document.body;
-
+    const container = acharContainerQuestao(radios[0]);
     const linhas = (container.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
-    let qIdx = linhas.findIndex(l => /^\d+\.-/.test(l));
+
+    let qIdx = linhas.findIndex(l => /^\d+\.\s*-/.test(l));
     if (qIdx < 0) {
       let m = -1, t = 0;
       linhas.forEach((l, i) => { if (l.endsWith('?') && l.length > t) { m = i; t = l.length; } });
@@ -133,16 +125,21 @@
     }
     if (qIdx < 0) return null;
 
-    const pergunta = linhas[qIdx].replace(/^\d+\.-\s*/, '');
+    const pergunta = linhas[qIdx].replace(/^\d+\.\s*-\s*/, '');
     const opcoes = [];
     for (let i = qIdx + 1; i < linhas.length; i++) {
       const l = linhas[i];
-      if (/^(Tentativas|Terminar|Bloco|Teste)/i.test(l)) break;
+      if (/^(Tentativas|TERMINAR|Terminar|Enviar|Tente|Sua pontuação)/i.test(l)) break;
       opcoes.push(l.replace(/^[“”"']+|[“”"']+$/g, '').trim());
     }
-    const botaoTerminar = Array.from(container.querySelectorAll('button'))
-      .find(b => /^\s*terminar\s*$/i.test(b.innerText || ''));
-    return { pergunta, opcoes, radios, botaoTerminar };
+
+    const radiosContainer = Array.from(container.querySelectorAll('md-radio-button.choice-radio-button'))
+      .filter(naTela);
+
+    const botaoTerminar = acharBotao('terminar', container);
+    const botaoProximo = acharBotao('próximo', container) || acharBotao('proximo', container);
+
+    return { pergunta, opcoes, radios: radiosContainer, botaoTerminar, botaoProximo, container };
   }
 
   // ---------- tela de pontuação ----------
@@ -152,20 +149,37 @@
     return (enviar && temPontuacao) ? enviar : null;
   }
 
-  // ---------- fluxo completo de responder ----------
+  // ---------- responder ----------
   async function responder() {
     const q = detectarPergunta();
     if (!q) return false;
 
     const chave = q.pergunta.slice(0, 120);
-    if (respondidas.has(chave)) return true;
+
+    // Já respondida mas ainda na tela → avança ou fecha
+    if (respondidas.has(chave)) {
+      if (q.botaoProximo) {
+        q.botaoProximo.click();
+        status('➡️ Próxima Q');
+        await esperar(600);
+        return true;
+      }
+      const fechar = Array.from(document.querySelectorAll('button[aria-label=" Fechar"], button[aria-label="Fechar"]'))
+        .find(naTela);
+      if (fechar) {
+        fechar.click();
+        status('✕ Fechando');
+        await esperar(500);
+        return true;
+      }
+      return false;
+    }
 
     status('🤔 Pensando...');
 
     try {
       const resp = await perguntarIA(q.pergunta, q.opcoes, bufferPaginas);
       const alvo = limpar(resp);
-
       let idx = q.opcoes.findIndex(o => limpar(o) === alvo);
       if (idx < 0) idx = q.opcoes.findIndex(o => limpar(o).includes(alvo) || alvo.includes(limpar(o)));
       if (idx < 0 && /^\d+$/.test(resp.trim())) idx = parseInt(resp.trim(), 10) - 1;
@@ -176,14 +190,22 @@
         return true;
       }
 
-      // 1) marca opção
       q.radios[idx].click();
       await esperar(700);
 
-      // 2) TERMINAR
+      // Se o bloco tem próxima questão, avança em vez de terminar
+      if (q.botaoProximo) {
+        q.botaoProximo.click();
+        status('✅ ' + (idx + 1) + ' → próxima Q');
+        respondidas.add(chave);
+        await esperar(700);
+        return true;
+      }
+
+      // Senão, termina o bloco
       const terminar = q.botaoTerminar
         || Array.from(document.querySelectorAll('button'))
-             .find(b => /^\s*terminar\s*$/i.test(b.innerText || '') && visivel(b));
+             .find(b => /^\s*terminar\s*$/i.test(b.innerText || '') && naTela(b));
       if (!terminar || terminar.disabled) {
         status('⚠️ Terminar indisponível');
         respondidas.add(chave);
@@ -192,28 +214,23 @@
       terminar.click();
       status('📤 Terminar...');
 
-      // 3) espera tela pontuação e clica ENVIAR
       let enviar = null;
       for (let i = 0; i < 15; i++) {
         await esperar(300);
         enviar = detectarTelaEnviar();
         if (enviar) break;
       }
-      if (enviar) {
-        enviar.click();
-        status('✅ Enviado');
-      } else {
-        status('⚠️ Enviar não apareceu');
-      }
+      if (enviar) { enviar.click(); status('✅ Enviado'); }
+      else status('⚠️ Enviar não apareceu');
 
       respondidas.add(chave);
 
-      // 4) espera o modal fechar (radios somem) pra liberar a navegação
+      // espera o modal fechar
       for (let i = 0; i < 20; i++) {
         await esperar(300);
-        const aindaAberto = document.querySelectorAll('md-radio-button.choice-radio-button').length > 0
+        const aberto = document.querySelectorAll('md-radio-button.choice-radio-button').length > 0
           || detectarTelaEnviar();
-        if (!aindaAberto) break;
+        if (!aberto) break;
       }
       status('➡️ Próxima...');
     } catch (e) {
@@ -226,7 +243,7 @@
 
   // ---------- ações ----------
   function abrir() {
-    const b = Array.from(document.querySelectorAll('button[aria-label="Pergunta"]')).find(visivel);
+    const b = Array.from(document.querySelectorAll('button[aria-label="Pergunta"]')).find(naTela);
     if (b) { b.click(); return true; }
     return false;
   }
@@ -242,14 +259,11 @@
     if (ocupado || !ligado) return;
     ocupado = true;
     try {
-      // Se a tela de pontuação está aberta, clica ENVIAR direto
       const enviar = detectarTelaEnviar();
       if (enviar) { enviar.click(); status('📤 Enviar'); await esperar(1200); return; }
 
-      // Se o modal de pergunta está aberto, responde
       if (await responder()) return;
 
-      // Se nenhum modal está aberto, captura a página atual e depois avança
       atualizarBuffer();
 
       if (abrir()) return;
@@ -287,8 +301,7 @@
         <button id="__arBtn"
           style="all:unset;padding:4px 10px;border-radius:6px;background:#0a0;color:#fff;font-weight:600;cursor:pointer">Iniciar</button>
         <span id="__arStatus" style="opacity:.8;flex:1">Pronto</span>
-        <button id="__arX"
-          style="all:unset;cursor:pointer;opacity:.5;padding:0 4px">✕</button>
+        <button id="__arX" style="all:unset;cursor:pointer;opacity:.5;padding:0 4px">✕</button>
       </div>
       <div id="__arBuf" style="opacity:.6;font-size:10px">📖 0 páginas no contexto</div>
     `;
@@ -347,12 +360,11 @@
     document.addEventListener('mouseup', () => { down = false; });
   }
 
-  // atualiza o contador do buffer visualmente
   setInterval(() => {
     const el = document.getElementById('__arBuf');
     if (el) el.textContent = '📖 ' + bufferPaginas.length + ' páginas no contexto';
   }, 1500);
 
   ui();
-  console.log('%c[AR] Pronto. Sistema de leitura ativo.', 'color:#0a0;font-weight:bold');
+  console.log('%c[AR] Pronto. Suporta múltiplas questões por bloco.', 'color:#0a0;font-weight:bold');
 })();
