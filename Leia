@@ -24,6 +24,7 @@
   let tempoOriginal = 0;
   let inicioBypass = 0;
   let minimized = false;
+  let hidden = false;
   let notifyTimer;
   let apiKey = localStorage.getItem('__arKey') || '';
   const buffer = [];
@@ -46,41 +47,67 @@
   style.id = 'arStyle';
   style.textContent = `
 #arFloat,#arToggle,#arNotify{box-sizing:border-box}
-#arFloat{position:fixed;right:20px;bottom:100px;width:min(330px,calc(100vw - 24px));max-height:calc(100dvh - 120px);overflow-y:auto;overflow-x:hidden;padding:16px;color:#eee;background:radial-gradient(ellipse at 50% 0%,#ffffff17,transparent 65%),rgba(12,12,16,.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid #ffffff30;border-radius:20px;z-index:2147483640;font-family:"Trebuchet MS",Arial,sans-serif;box-shadow:0 15px 50px #000b,0 0 20px #ffffff08;isolation:isolate;scrollbar-width:thin;scrollbar-color:#444 transparent;transition:opacity .2s,transform .2s}
-#arFloat:before{content:"";position:absolute;inset:0;border-radius:20px;background:conic-gradient(transparent,#ffffff0b,transparent,#ffffff08,transparent);animation:arPanelGlow 8s linear infinite;pointer-events:none;z-index:-1}
-@keyframes arPanelGlow{to{transform:rotate(360deg)}}
+#arFloat{
+  position:fixed;
+  right:16px;
+  bottom:80px;
+  width:min(258px,calc(100vw - 24px));
+  max-height:calc(100dvh - 100px);
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:12px;
+  color:#eee;
+  background:rgba(18,18,22,.96);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  border:1px solid #ffffff26;
+  border-radius:14px;
+  z-index:2147483640;
+  font-family:"Trebuchet MS",Arial,sans-serif;
+  box-shadow:0 10px 30px #000b;
+  scrollbar-width:thin;
+  scrollbar-color:#444 transparent;
+  transition:opacity .2s,transform .2s,visibility .2s;
+  isolation:isolate;
+}
 #arFloat.arMini{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.82)}
-#arHead{position:relative;min-height:32px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:900;letter-spacing:1.5px;margin-bottom:12px}
-#arDragHandle{cursor:grab;touch-action:none;padding:6px 14px;border-radius:8px;user-select:none;-webkit-user-select:none}
+#arHead{position:relative;min-height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;letter-spacing:1.4px;margin-bottom:10px}
+#arDragHandle{cursor:grab;touch-action:none;padding:5px 12px;border-radius:8px;user-select:none;-webkit-user-select:none}
 #arDragHandle:active{cursor:grabbing;background:#ffffff10}
-#arEditApi{position:absolute;right:0;top:-3px;width:31px;height:31px;padding:0;border:1px solid #ffffff30;border-radius:9px;background:#ffffff10;color:#fff;font-size:11px;font-weight:bold;cursor:pointer;font-family:inherit}
-#arLine{height:1px;margin-bottom:14px;background:linear-gradient(90deg,transparent,#ffffff55,transparent)}
-.arLabel{display:block;color:#a8a8b3;font-size:10px;font-weight:bold;letter-spacing:1.3px;margin:13px 0 8px}
-.arToggleRow{display:flex;align-items:center;gap:9px;padding:10px 12px;margin-top:10px;background:linear-gradient(135deg,#ffffff0a,#ffffff03);border:1px solid #ffffff18;border-radius:11px;font-size:12px;color:#ddd;font-weight:bold;cursor:pointer;user-select:none;-webkit-user-select:none}
-.arToggleRow input{width:16px;height:16px;margin:0;flex-shrink:0;accent-color:#39ff78;cursor:pointer}
-.arToggleRow.arOn{border-color:#39ff7850;background:linear-gradient(135deg,#39ff780f,#39ff7803);color:#c8ffdc}
-#arFloat input[type=number]{display:block;width:100%;box-sizing:border-box;background:rgba(0,0,0,.38);color:#eee;border:1px solid #ffffff20;border-radius:12px;padding:11px;outline:none;font-family:inherit;font-size:13px;text-align:center}
-#arFloat input:focus{border-color:#ffffff65;box-shadow:0 0 15px #ffffff0c}
-#arFloat button.arAction{display:block;width:100%;min-height:43px;border:1px solid #ffffff20;border-radius:12px;padding:12px;margin-top:9px;background:linear-gradient(135deg,#ffffff18,#ffffff08);color:#eee;font-family:inherit;font-weight:bold;font-size:12px;cursor:pointer;transition:background .2s,transform .2s;letter-spacing:.5px}
+#arEditApi{position:absolute;right:0;top:-2px;width:34px;height:24px;padding:0;border:1px solid #ffffff30;border-radius:7px;background:#ffffff10;color:#fff;font-size:10px;font-weight:bold;cursor:pointer;font-family:inherit;letter-spacing:.6px}
+#arEditApi:hover{background:#ffffff22}
+#arLine{height:1px;margin-bottom:10px;background:linear-gradient(90deg,transparent,#ffffff50,transparent)}
+.arLabel{display:block;color:#a8a8b3;font-size:9px;font-weight:bold;letter-spacing:1.2px;margin:10px 0 6px}
+.arToggleRow{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:7px;background:#ffffff08;border:1px solid #ffffff18;border-radius:9px;font-size:11px;color:#ddd;font-weight:bold;cursor:pointer;user-select:none;-webkit-user-select:none;letter-spacing:.3px}
+.arToggleRow input{width:14px;height:14px;margin:0;flex-shrink:0;accent-color:#39ff78;cursor:pointer}
+.arToggleRow.arOn{border-color:#39ff7850;background:#39ff780f;color:#c8ffdc}
+#arFloat input[type=number]{display:block;width:100%;box-sizing:border-box;background:rgba(0,0,0,.38);color:#eee;border:1px solid #ffffff20;border-radius:9px;padding:8px;outline:none;font-family:inherit;font-size:12px;text-align:center}
+#arFloat input:focus{border-color:#ffffff65;box-shadow:0 0 12px #ffffff0c}
+#arFloat button.arAction{display:block;width:100%;min-height:36px;border:1px solid #ffffff20;border-radius:10px;padding:9px;margin-top:8px;background:linear-gradient(135deg,#ffffff18,#ffffff08);color:#eee;font-family:inherit;font-weight:bold;font-size:12px;cursor:pointer;transition:background .2s,transform .2s;letter-spacing:.6px}
 #arFloat button.arAction:active{transform:scale(.98)}
-#arGo{background:linear-gradient(110deg,#fff,#c7c7d0)!important;color:#101014!important;box-shadow:0 0 16px #ffffff12}
+#arGo{background:linear-gradient(110deg,#fff,#c7c7d0)!important;color:#101014!important}
 #arGo.arRunning{background:linear-gradient(110deg,#ff8a8a,#c7c7d0)!important;color:#101014!important}
 #arGo.arPaused{background:linear-gradient(110deg,#f5d76e,#fff)!important;color:#101014!important}
-.arStatus{font-size:11px;color:#9a9aa3;text-align:center;padding:8px 4px 4px;line-height:1.4;min-height:16px}
-.arBuf{font-size:10px;color:#7f7f88;text-align:center;padding:2px 0}
-#arToggle{position:fixed;right:20px;bottom:25px;width:62px;height:62px;padding:4px;border:1px solid #000;border-radius:50%;background:#050505;z-index:2147483641;cursor:grab;display:flex;align-items:center;justify-content:center;isolation:isolate;touch-action:none;box-shadow:0 5px 20px #000b;user-select:none;-webkit-user-select:none}
-#arToggle:before{content:"";position:absolute;inset:-4px;border-radius:50%;background:conic-gradient(#101010,#44444a,#bdbdc8,#fff,#65656d,#171717,#aaaab4,#101010);animation:arRingRotate 2.2s linear infinite;z-index:-1;pointer-events:none;transition:inset .25s ease,box-shadow .25s ease}
+.arStatus{font-size:10px;color:#9a9aa3;text-align:center;padding:6px 2px 2px;line-height:1.4;min-height:14px}
+.arBuf{font-size:9px;color:#7f7f88;text-align:center;padding:1px 0}
+#arToggle{position:fixed;right:16px;bottom:20px;width:52px;height:52px;padding:3px;border:1px solid #000;border-radius:50%;background:#050505;z-index:2147483641;cursor:grab;display:flex;align-items:center;justify-content:center;isolation:isolate;touch-action:none;box-shadow:0 4px 16px #000b;user-select:none;-webkit-user-select:none;transition:transform .18s cubic-bezier(.2,.8,.2,1),filter .18s ease,box-shadow .18s ease}
+#arToggle:before{content:"";position:absolute;inset:-3px;border-radius:50%;background:conic-gradient(#101010,#44444a,#bdbdc8,#fff,#65656d,#171717,#aaaab4,#101010);animation:arRingRotate 2.2s linear infinite;z-index:-1;pointer-events:none;transition:inset .25s ease,box-shadow .25s ease}
 #arToggle:after{content:"";position:absolute;inset:0;border:1px solid #000;border-radius:50%;pointer-events:none}
-#arToggle img{width:100%;height:100%;object-fit:cover;border-radius:50%;pointer-events:none}
+#arToggle img{width:100%;height:100%;object-fit:cover;border-radius:50%;pointer-events:none;transition:filter .18s ease}
 @keyframes arRingRotate{to{transform:rotate(360deg)}}
 #arToggle.arAura{animation:arAura 3s ease-in-out infinite}
-@keyframes arAura{0%,100%{box-shadow:0 0 7px #ffffff18,0 8px 25px #000b}50%{box-shadow:0 0 18px #ffffff50,0 0 30px #ffffff16,0 8px 25px #000b}}
-#arToggle.arPressed{transform:scale(.9);filter:brightness(1.3)}
-#arToggle.arWorking:before{inset:-8px;background:conic-gradient(#003b19,#006b2b,#00a83b,#39ff78,#008f35,#004d20,#20e85b,#003b19);animation:arRingRotate .8s linear infinite;box-shadow:0 0 8px #00ff5570,0 0 18px #00ff5545}
-#arToggle.arOk:before{background:conic-gradient(#003b19,#00ff70,#b0ffc9,#00a83b,#003b19);box-shadow:0 0 12px #00ff7070}
-#arToggle.arErr:before{background:conic-gradient(#450000,#ff4545,#ffaaaa,#a00000,#450000);box-shadow:0 0 12px #ff454570}
-#arNotify{position:fixed;top:25px;left:50%;transform:translateX(-50%) translateY(-20px);background:rgba(18,18,21,.97);color:#fff;padding:11px 18px;border:1px solid #ffffff30;border-radius:11px;font-family:"Trebuchet MS",Arial,sans-serif;font-weight:bold;font-size:13px;z-index:2147483642;opacity:0;transition:opacity .3s,transform .35s;box-shadow:0 8px 25px #0008;pointer-events:none;max-width:85vw;text-align:center}
-@media(max-width:360px){#arFloat{padding:13px}#arHead{font-size:15px}}
+@keyframes arAura{0%,100%{box-shadow:0 0 6px #ffffff18,0 6px 20px #000b}50%{box-shadow:0 0 14px #ffffff50,0 0 22px #ffffff16,0 6px 20px #000b}}
+#arToggle.arPressed{transform:scale(.88);filter:brightness(1.5);box-shadow:0 0 10px #fff,0 0 22px #ffffff70,0 6px 20px #000b}
+#arToggle.arPressed img{filter:brightness(1.25)}
+#arToggle.arReleased{transform:scale(1.06)}
+#arToggle.arWorking:before{inset:-6px;background:conic-gradient(#003b19,#006b2b,#00a83b,#39ff78,#008f35,#004d20,#20e85b,#003b19);animation:arRingRotate .8s linear infinite;box-shadow:0 0 6px #00ff5570,0 0 14px #00ff5545}
+#arToggle.arWorking{animation:arWorkingPulse .7s ease-in-out infinite alternate}
+@keyframes arWorkingPulse{from{filter:brightness(1);transform:scale(1)}to{filter:brightness(1.2);transform:scale(1.025)}}
+#arToggle.arOk:before{background:conic-gradient(#003b19,#00ff70,#b0ffc9,#00a83b,#003b19);box-shadow:0 0 10px #00ff7070}
+#arToggle.arErr:before{background:conic-gradient(#450000,#ff4545,#ffaaaa,#a00000,#450000);box-shadow:0 0 10px #ff454570}
+#arToggle:not(.arWorking):before{inset:-3px;box-shadow:none}
+#arNotify{position:fixed;top:22px;left:50%;transform:translateX(-50%) translateY(-20px);background:rgba(18,18,21,.97);color:#fff;padding:9px 16px;border:1px solid #ffffff30;border-radius:10px;font-family:"Trebuchet MS",Arial,sans-serif;font-weight:bold;font-size:12px;z-index:2147483642;opacity:0;transition:opacity .3s,transform .35s;box-shadow:0 6px 20px #0008;pointer-events:none;max-width:85vw;text-align:center;overflow-wrap:anywhere}
+@media(max-width:360px){#arFloat{padding:10px}#arHead{font-size:13px}}
   `;
   document.head.appendChild(style);
 
@@ -89,7 +116,7 @@
   gui.id = 'arFloat';
   gui.innerHTML = `
 <div id="arHead">
-    <span id="arDragHandle">LEIA-ME IA</span>
+    <span id="arDragHandle">LEIAWARE</span>
     <button id="arEditApi" type="button" title="Configurar API">API</button>
 </div>
 <div id="arLine"></div>
@@ -98,19 +125,19 @@
 <label class="arToggleRow" id="arRowP"><input type="checkbox" id="arAutoPage"><span>AUTO NEXT PAGE</span></label>
 <label class="arToggleRow" id="arRowT"><input type="checkbox" id="arTimerBypass"><span>TIMER BYPASS</span></label>
 
-<span class="arLabel">TEMPO POR PÁGINA (S)</span>
+<span class="arLabel">TEMPO POR PAGINA (S)</span>
 <input id="arTempo" type="number" value="1800" min="1">
 
-<button id="arGo" class="arAction" type="button">▶ INICIAR</button>
+<button id="arGo" class="arAction" type="button">INICIAR</button>
 <div class="arStatus" id="arStatus">Pronto</div>
-<div class="arBuf" id="arBuf">📖 0 páginas</div>
+<div class="arBuf" id="arBuf">0 paginas</div>
   `;
   document.body.appendChild(gui);
 
   const toggle = document.createElement('button');
   toggle.id = 'arToggle';
   toggle.type = 'button';
-  toggle.setAttribute('aria-label', 'Abrir ou minimizar LEIA-ME IA');
+  toggle.setAttribute('aria-label', 'Abrir ou minimizar LeiaWare');
   toggle.innerHTML = `<img src="${ICONE}" alt="">`;
   toggle.classList.add('arAura');
   document.body.appendChild(toggle);
@@ -120,7 +147,7 @@
   document.body.appendChild(notifyBox);
 
   // ---------- Notify ----------
-  function notify(msg, ms = 2300) {
+  function notify(msg, ms = 2200) {
     notifyBox.textContent = msg;
     notifyBox.style.opacity = '1';
     notifyBox.style.transform = 'translateX(-50%) translateY(0)';
@@ -132,9 +159,10 @@
   }
 
   const status = t => { $('arStatus').textContent = t; };
-  const refreshBuf = () => $('arBuf').textContent = '📖 ' + buffer.length + ' páginas';
+  const refreshBuf = () => $('arBuf').textContent = buffer.length + ' paginas';
 
   // ---------- API Key ----------
+  $('arEditApi').addEventListener('pointerdown', e => e.stopPropagation());
   $('arEditApi').onclick = e => {
     e.stopPropagation();
     const v = prompt('Cole sua chave da OpenRouter (sk-or-v1-...):', apiKey);
@@ -168,19 +196,17 @@
   const btnGo = $('arGo');
 
   function atualizarBotao() {
-    if (!rodando) {
-      btnGo.textContent = '▶ INICIAR';
-      btnGo.classList.remove('arRunning', 'arPaused');
-    } else {
-      btnGo.textContent = '⏸ PAUSAR';
-      btnGo.classList.remove('arPaused');
+    if (rodando) {
+      btnGo.textContent = 'PAUSAR';
       btnGo.classList.add('arRunning');
-    }
-    // Se estiver pausado (toggles ligados mas rodando = false e já iniciou antes)
-    if (!rodando && (timerPage || timerAnswer || bypassInterval)) {
-      btnGo.textContent = '▶ RETOMAR';
+      btnGo.classList.remove('arPaused');
+    } else if (timerPage || timerAnswer || bypassInterval) {
+      btnGo.textContent = 'RETOMAR';
       btnGo.classList.add('arPaused');
       btnGo.classList.remove('arRunning');
+    } else {
+      btnGo.textContent = 'INICIAR';
+      btnGo.classList.remove('arRunning', 'arPaused');
     }
   }
 
@@ -193,7 +219,7 @@
   }
 
   function iniciarTudo() {
-    if (!apiKey) { notify('⚠️ Configure a API primeiro'); return; }
+    if (!apiKey) { notify('Configure a API primeiro'); $('arEditApi').click(); return; }
     rodando = true;
     if (autoAnswer && !timerAnswer) timerAnswer = setInterval(loopAnswer, 2000);
     if (autoNextPage && !timerPage) timerPage = setInterval(loopPage, 2000);
@@ -202,15 +228,8 @@
   }
 
   btnGo.onclick = () => {
-    if (rodando) {
-      pausarTudo();
-      status('⏸ Pausado');
-      notify('Pausado.');
-    } else {
-      iniciarTudo();
-      status('▶ Rodando');
-      notify('Rodando.');
-    }
+    if (rodando) { pausarTudo(); status('Pausado'); notify('Pausado.'); }
+    else { iniciarTudo(); status('Rodando'); notify('Rodando.'); }
   };
 
   // ---------- Helpers ----------
@@ -349,7 +368,7 @@
   function iniciarBypass() {
     if (!timerBypass) return;
     const els = acharTimers();
-    if (!els.length) { status('⚠️ Sem timer visível'); return; }
+    if (!els.length) { status('Sem timer visivel'); return; }
     tempoOriginal = paraSeg(els[0].textContent.trim());
     inicioBypass = Date.now();
     if (bypassInterval) clearInterval(bypassInterval);
@@ -367,6 +386,7 @@
   async function loopAnswer() {
     if (!rodando || !autoAnswer || processando || !temPergunta()) return;
     processando = true;
+    toggle.classList.add('arWorking');
     try {
       const pEl = document.querySelector('.question-quiz-text.ng-binding');
       const pergunta = pEl.innerText.trim();
@@ -374,23 +394,25 @@
         .filter(naTela).map(e => e.innerText.trim()).filter(Boolean);
       if (!pergunta || !opcoes.length) return;
 
-      status('🤔 Pensando...');
+      status('Pensando...');
       const letra = await chamarIA(pergunta, opcoes);
-      if (!letra) { status('❌ IA falhou'); toggle.classList.add('arErr'); return; }
+      if (!letra) { status('IA falhou'); toggle.classList.add('arErr'); return; }
 
-      status('✅ ' + letra);
+      status('OK: ' + letra);
       if (marcar(letra)) {
         await wait(1000);
         await clicarQuiz();
         await wait(2000);
       }
+      toggle.classList.add('arOk');
     } catch (e) {
       console.error(e);
-      status('❌ ' + e.message);
+      status('Erro: ' + e.message);
       toggle.classList.add('arErr');
     } finally {
       processando = false;
-      setTimeout(() => toggle.classList.remove('arErr'), 2600);
+      toggle.classList.remove('arWorking');
+      setTimeout(() => toggle.classList.remove('arOk', 'arErr'), 2600);
     }
   }
 
@@ -403,7 +425,7 @@
         const info = ReadiumSDK.reader.getPaginationInfo();
         if (!info || typeof info.canGoRight !== 'function' || info.canGoRight()) {
           ReadiumSDK.reader.openPageRight();
-          status('➡️ Página');
+          status('Pagina');
         }
       }
     } catch (e) {}
@@ -423,6 +445,7 @@
       offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
     iconMoved = false;
     toggle.classList.add('arPressed');
+    toggle.classList.remove('arReleased');
     try { toggle.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
   });
@@ -444,10 +467,13 @@
     const wasMoved = iconMoved;
     iconDrag = null; iconMoved = false;
     toggle.classList.remove('arPressed');
+    toggle.classList.add('arReleased');
+    requestAnimationFrame(() => requestAnimationFrame(() => toggle.classList.remove('arReleased')));
     if (!wasMoved) setMinimized(!minimized);
   });
   toggle.addEventListener('pointercancel', () => {
-    iconDrag = null; iconMoved = false; toggle.classList.remove('arPressed');
+    iconDrag = null; iconMoved = false;
+    toggle.classList.remove('arPressed', 'arReleased');
   });
   toggle.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
 
@@ -473,13 +499,51 @@
   $('arDragHandle').addEventListener('pointerup', finishPanel);
   $('arDragHandle').addEventListener('pointercancel', finishPanel);
 
-  // ---------- Atalho ESC ----------
+  // ---------- Atalhos ----------
+  function toggleHiddenMode() {
+    hidden = !hidden;
+    gui.style.display = hidden ? 'none' : '';
+    toggle.style.display = hidden ? 'none' : '';
+    notifyBox.style.display = hidden ? 'none' : '';
+  }
+
   document.addEventListener('keydown', e => {
+    // ESC — minimiza/expande painel
     if (e.key === 'Escape') setMinimized(!minimized);
+
+    // Alt — esconde/mostra tudo
+    if (e.key === 'Alt' && !e.repeat) {
+      e.preventDefault();
+      toggleHiddenMode();
+    }
+
+    // Alt+Q — dispara ação principal (Iniciar/Pausar)
+    if (e.altKey && e.key.toLowerCase() === 'q') {
+      e.preventDefault();
+      btnGo.click();
+    }
+  });
+
+  // Botão do meio — esconde/mostra tudo
+  document.addEventListener('mousedown', e => {
+    if (e.button === 1) { e.preventDefault(); toggleHiddenMode(); }
+  });
+
+  // ---------- Resize ----------
+  window.addEventListener('resize', () => {
+    const r = toggle.getBoundingClientRect();
+    if (r.right > innerWidth) {
+      toggle.style.left = Math.max(0, innerWidth - toggle.offsetWidth) + 'px';
+      toggle.style.right = 'auto';
+    }
+    if (r.bottom > innerHeight) {
+      toggle.style.top = Math.max(0, innerHeight - toggle.offsetHeight) + 'px';
+      toggle.style.bottom = 'auto';
+    }
   });
 
   status('Pronto');
   refreshBuf();
-  notify('LEIA-ME IA carregada!');
-  console.log('[LEIA-ME IA] Pronto.');
+  notify('LeiaWare carregada!');
+  console.log('[LeiaWare] Pronto.');
 })();
