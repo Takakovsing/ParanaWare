@@ -1,13 +1,12 @@
-(async function autoReaderCompleto() {
-    // ===================== SE JÁ RODANDO, PARA =====================
+(async function autoReaderFinal() {
     if (window.__autoIA) { window.__autoIA.parar(); return; }
 
     // ===================== CONFIG =====================
     const SEGUNDOS_PAGINA        = 5;
     const RODADAS_VOTACAO        = 3;
     const TENTATIVAS_POR_MODELO  = 2;
-    const DELAY_ANTES_CLIQUE     = 300;
-    const DELAY_POS_OPCAO        = 900;
+    const DELAY_ANTES_CLIQUE     = 400;
+    const DELAY_VERIFICACAO      = 1500;   // ← espera 1,5s antes de confirmar
     const DELAY_POS_TERMINAR     = 1200;
     const TIMEOUT_QUESTAO        = 60000;
     const ESPERA_POS_Q           = 2500;
@@ -17,7 +16,6 @@
     const MAX_CHARS_CONTEXTO     = 12000;
     const MAX_PAGINAS_GUARDADAS  = 40;
 
-    // Lista de modelos — tenta em ordem até um responder
     const MODELOS = [
         'openrouter/free',
         'meta-llama/llama-3.3-70b-instruct:free',
@@ -59,8 +57,7 @@
                 c = c.parentElement; i++;
             }
         }
-        const txt = clone.innerText || '';
-        return txt.split('\n').map(s => s.trim())
+        return (clone.innerText || '').split('\n').map(s => s.trim())
             .filter(s => s.length > 2 && s.length < 800)
             .filter(s =>
                 !/^(tentativas|terminar|bloco|fim da|página para|as aventuras|animais inventores|teste)/i.test(s) &&
@@ -82,7 +79,6 @@
         while (memoria.paginas.length > MAX_PAGINAS_GUARDADAS) {
             memoria.charsTotal -= memoria.paginas.shift().length;
         }
-        log(`📚 Página guardada (${memoria.paginas.length} págs, ${memoria.charsTotal} chars)`);
     }
 
     function montarContexto() {
@@ -101,11 +97,10 @@
     // ===================== PAINEL =====================
     const painel = document.createElement('div');
     painel.style.cssText = `
-        position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
-        background: #1a1a1a; color: #fff;
-        font: 12px/1.45 system-ui, sans-serif;
-        padding: 14px 16px; border-radius: 10px; max-width: 340px;
-        box-shadow: 0 6px 25px rgba(0,0,0,.6); user-select: none;
+        position:fixed; bottom:20px; right:20px; z-index:2147483647;
+        background:#1a1a1a; color:#fff; font:12px/1.45 system-ui,sans-serif;
+        padding:14px 16px; border-radius:10px; max-width:330px;
+        box-shadow:0 6px 25px rgba(0,0,0,.6); user-select:none;
     `;
     painel.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -122,8 +117,6 @@
         <div style="display:flex;gap:6px;margin-bottom:6px;">
             <button id="__btnRepetir" style="flex:2;background:#ff9800;color:#fff;
                 border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;">🔄 DE NOVO</button>
-            <button id="__btnMem" style="flex:1;background:#2196f3;color:#fff;border:0;
-                padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;">📚</button>
             <button id="__btnKey" style="flex:1;background:#333;color:#fff;border:0;
                 padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;">🔑</button>
         </div>
@@ -175,7 +168,7 @@
         }
     }
 
-    // ===================== DETECÇÃO =====================
+    // ===================== DETECÇÃO DE QUESTÃO =====================
     function acharBotaoTerminar() {
         for (const b of document.querySelectorAll('button')) {
             if (b.offsetParent === null) continue;
@@ -212,21 +205,19 @@
         return { pergunta, opcoes };
     }
 
-    // ===================== RADIO: DETECÇÃO E CLIQUE =====================
+    // ===================== RADIOS =====================
+    function pegarRadios(container) {
+        return container.querySelectorAll('md-radio-button');
+    }
+
     function qualEstaMarcado(container) {
-        const radios = container.querySelectorAll(
-            'md-radio-button, [role="radio"], .md-radio-button'
-        );
+        const radios = pegarRadios(container);
         const marcados = [];
         radios.forEach((r) => {
             const txt = (r.innerText || '').trim().replace(/\s+/g, ' ');
-            if (!txt) return;
             const checked =
                 r.getAttribute('aria-checked') === 'true' ||
-                (r.classList && r.classList.contains('md-checked')) ||
-                (r.querySelector && r.querySelector('.md-checked')) ||
-                (r.querySelector && r.querySelector('[aria-checked="true"]')) ||
-                (r.querySelector && r.querySelector('input[type="radio"]:checked'));
+                (r.classList && r.classList.contains('md-checked'));
             if (checked) marcados.push({ texto: txt, el: r });
         });
         return marcados;
@@ -234,15 +225,11 @@
 
     function encontrarRadioPorTexto(textoOpcao, container) {
         const alvo = textoOpcao.trim().toLowerCase().replace(/\s+/g, ' ');
-        const radios = container.querySelectorAll(
-            'md-radio-button, [role="radio"], .md-radio-button'
-        );
-
+        const radios = pegarRadios(container);
         for (const r of radios) {
             const t = (r.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
             if (t === alvo) return r;
         }
-
         const prefixo = alvo.slice(0, 40);
         let melhor = null, melhorDelta = Infinity;
         for (const r of radios) {
@@ -258,122 +245,60 @@
     function bateComAlvo(textoMarcado, textoAlvo) {
         const a = textoMarcado.trim().toLowerCase().replace(/\s+/g, ' ');
         const b = textoAlvo.trim().toLowerCase().replace(/\s+/g, ' ');
-        const prefixo = b.slice(0, 30);
-        return a.startsWith(prefixo) || a === b;
+        const prefixo = b.slice(0, 25);
+        return a.startsWith(prefixo) || b.startsWith(a.slice(0, 25));
     }
 
-    async function clicarOpcao(textoOpcao, container) {
+    // ===================== CLIQUE + VERIFICAÇÃO =====================
+    async function clicarRadio(textoOpcao, container) {
         const radio = encontrarRadioPorTexto(textoOpcao, container);
-        if (!radio) { log('❌ Radio não encontrado'); return false; }
+        if (!radio) { log('❌ Radio não achado'); return null; }
 
         const textoRadio = (radio.innerText || '').trim().replace(/\s+/g, ' ');
         log(`🎯 Alvo: "${textoRadio.slice(0, 50)}..."`);
 
+        // Destaca visualmente
         const outlineOrig = radio.style.outline;
         const bgOrig = radio.style.background;
         radio.style.outline = '3px solid #ffeb3b';
         radio.style.background = 'rgba(255,235,59,.25)';
-        await sleep(500);
+        await sleep(400);
 
-        let marcados = qualEstaMarcado(container);
-        if (marcados.length > 0 && bateComAlvo(marcados[0].texto, textoOpcao)) {
-            log('ℹ️ Já estava marcada');
-            radio.style.outline = outlineOrig; radio.style.background = bgOrig;
-            return true;
-        }
-
-        // Tentativa 1
+        // Clique simples (que já testamos e funciona)
         try { radio.click(); } catch(_) {}
-        await sleep(300);
-        marcados = qualEstaMarcado(container);
-        if (marcados.length > 0 && bateComAlvo(marcados[0].texto, textoOpcao)) {
-            log('✅ Marcada (click)');
-            radio.style.outline = outlineOrig; radio.style.background = bgOrig;
-            return true;
-        }
 
-        // Tentativa 2
-        const inner = radio.querySelector('.md-container') || radio.querySelector('label') || radio.querySelector('span');
-        if (inner) {
-            try { inner.click(); } catch(_) {}
-            await sleep(300);
-            marcados = qualEstaMarcado(container);
-            if (marcados.length > 0 && bateComAlvo(marcados[0].texto, textoOpcao)) {
-                log('✅ Marcada (inner)');
-                radio.style.outline = outlineOrig; radio.style.background = bgOrig;
-                return true;
-            }
-        }
+        // ============ ESPERA 1,5s E CONFIRMA ============
+        log(`⏳ Aguardando ${DELAY_VERIFICACAO}ms pra confirmar...`);
+        await sleep(DELAY_VERIFICACAO);
 
-        // Tentativa 3
-        try {
-            const r = radio.getBoundingClientRect();
-            const x = r.left + r.width/2, y = r.top + r.height/2;
-            ['mousedown','mouseup','click'].forEach(tp => {
-                radio.dispatchEvent(new MouseEvent(tp, {
-                    bubbles: true, cancelable: true, view: window,
-                    clientX: x, clientY: y, button: 0
-                }));
-            });
-        } catch(_) {}
-        await sleep(300);
-        marcados = qualEstaMarcado(container);
-        if (marcados.length > 0 && bateComAlvo(marcados[0].texto, textoOpcao)) {
-            log('✅ Marcada (mouse)');
-            radio.style.outline = outlineOrig; radio.style.background = bgOrig;
-            return true;
-        }
-
-        // Tentativa 4
-        try {
-            if (window.angular) {
-                let s = angular.element(radio).scope(), n = 0;
-                while (s && n < 10) {
-                    if (s.$apply) {
-                        s.$apply(() => { if (typeof s.select === 'function') s.select(); });
-                        break;
-                    }
-                    s = s.$parent; n++;
-                }
-            }
-        } catch(_) {}
-        await sleep(300);
-        marcados = qualEstaMarcado(container);
-        if (marcados.length > 0 && bateComAlvo(marcados[0].texto, textoOpcao)) {
-            log('✅ Marcada (angular)');
-            radio.style.outline = outlineOrig; radio.style.background = bgOrig;
-            return true;
-        }
-
-        // Tentativa 5
-        const inp = radio.querySelector('input[type="radio"]');
-        if (inp) {
-            try {
-                inp.checked = true;
-                inp.dispatchEvent(new Event('change', { bubbles: true }));
-                inp.click();
-            } catch(_) {}
-            await sleep(300);
-            marcados = qualEstaMarcado(container);
-            if (marcados.length > 0 && bateComAlvo(marcados[0].texto, textoOpcao)) {
-                log('✅ Marcada (input)');
-                radio.style.outline = outlineOrig; radio.style.background = bgOrig;
-                return true;
-            }
-        }
-
+        // Restaura o destaque
         radio.style.outline = outlineOrig;
         radio.style.background = bgOrig;
-        marcados = qualEstaMarcado(container);
-        if (marcados.length > 0) log(`❌ Marcou errada: "${marcados[0].texto.slice(0,50)}..."`);
-        else log('❌ Nada marcado');
-        return false;
+
+        // Lê o que ficou marcado
+        const marcados = qualEstaMarcado(container);
+        if (marcados.length === 0) {
+            log('❌ Nada marcado após o clique');
+            return { ok: false, marcado: null };
+        }
+
+        const marcado = marcados[0];
+        log(`📋 Marcado agora: "${marcado.texto.slice(0, 50)}..."`);
+
+        const bateu = bateComAlvo(marcado.texto, textoOpcao);
+        if (bateu) {
+            log('✅ Confirmado — marcou certo!');
+            return { ok: true, marcado };
+        } else {
+            log(`❌ Marcou errado! Esperava "${textoOpcao.slice(0, 30)}..." mas ficou "${marcado.texto.slice(0, 30)}..."`);
+            return { ok: false, marcado };
+        }
     }
 
     async function clicarTerminar() {
         const btn = acharBotaoTerminar();
         if (!btn) { log('❌ TERMINAR não achado'); return false; }
-        log('📤 TERMINAR');
+        log('📤 Clicando em TERMINAR');
         try { btn.click(); } catch(_) {}
         await sleep(200);
         if (document.contains(btn) && btn.offsetParent !== null) {
@@ -407,9 +332,8 @@
 - FATO: descreve algo real, objetivo, verificável. Não depende de quem fala.
 - OPINIÃO: expressa juízo, crença, sentimento, dúvida, possibilidade, valor ("acho", "talvez", "pode", "com certeza", "pacientemente").
 - POSSIBILIDADE (pode/deve/talvez) NÃO é fato.
-- ADVÉRBIOS DE MODO subjetivos ("pacientemente", "tristemente") tornam a frase OPINIÃO.
+- ADVÉRBIOS DE MODO subjetivos ("pacientemente") tornam a frase OPINIÃO.
 - Descrições de como algo funciona fisicamente SÃO fato.`,
-
             interpretacao: `Interpretação de texto: use SEMPRE o contexto. A resposta deve ser comprovada pelo texto.`,
             sinonimo: `Substitua mentalmente cada opção na frase original. Escolha a que mantém sentido idêntico.`,
             geral: `Analise cada alternativa com cuidado. Elimine as claramente erradas.`
@@ -468,29 +392,21 @@ Não escreva mais nada.`;
                     });
 
                     if (!r.ok) {
-                        const errTxt = (await r.text()).slice(0, 80);
-                        log(`  ❌ HTTP ${r.status}: ${errTxt}`);
-                        break; // próximo modelo
+                        log(`  ❌ HTTP ${r.status}`);
+                        break;
                     }
-
                     const d = await r.json();
-
                     if (d.error) {
                         log(`  ❌ API: ${JSON.stringify(d.error).slice(0,100)}`);
                         break;
                     }
-
                     const raw = (d.choices && d.choices[0] &&
                                  d.choices[0].message &&
                                  d.choices[0].message.content || '').trim();
                     const modeloReal = (d.model || modelo).split('/').pop();
 
-                    if (!raw) {
-                        log(`  ⚠️ Vazio (via ${modeloReal})`);
-                        continue;
-                    }
-
-                    log(`  📩 "${raw.slice(0,80)}" (via ${modeloReal})`);
+                    if (!raw) { log(`  ⚠️ Vazio`); continue; }
+                    log(`  📩 "${raw.slice(0,80)}" via ${modeloReal}`);
 
                     let num = null;
                     const mResp = raw.match(/RESPOSTA[:\s]*(\d+)/i);
@@ -502,19 +418,15 @@ Não escreva mais nada.`;
                             if (n >= 1 && n <= totalOpcoes) { num = n; break; }
                         }
                     }
-
                     if (num && num >= 1 && num <= totalOpcoes) {
                         log(`  ✅ ${num} via ${modeloReal}`);
                         return { num, raw, modelo: modeloReal };
-                    } else {
-                        log(`  ⚠️ Sem número válido`);
                     }
                 } catch (e) {
-                    log(`  ❌ Rede: ${e.message.slice(0,60)}`);
+                    log(`  ❌ ${e.message.slice(0,50)}`);
                 }
             }
         }
-        log('❌ TODOS os modelos falharam');
         return null;
     }
 
@@ -559,10 +471,7 @@ Não escreva mais nada.`;
             const { vencedor, votos, detalhes, empate } = resultado;
 
             if (!vencedor) {
-                elStatus.textContent = '❌ IA não respondeu.\n' +
-                    '• Chave ativa?\n' +
-                    '• Crédito grátis ok?\n' +
-                    '• Internet?';
+                elStatus.textContent = '❌ IA não respondeu';
                 setModo('erro');
                 return false;
             }
@@ -581,34 +490,21 @@ Não escreva mais nada.`;
             elStatus.textContent = `✅ (${vencedor}) ${textoOpcao.slice(0, 35)} ${votosStr}`;
 
             await sleep(DELAY_ANTES_CLIQUE);
-            const marcou = await clicarOpcao(textoOpcao, container);
+            const resultadoClique = await clicarRadio(textoOpcao, container);
 
+            // ============ VERIFICAÇÃO FINAL ============
             if (VERIFICAR_ANTES_ENVIAR) {
-                const marcados = qualEstaMarcado(container);
-                if (marcados.length === 0) {
-                    log('❌ Nada marcado — abortando');
-                    elStatus.textContent = '❌ Nada marcado — abortado';
-                    setModo('erro');
-                    return false;
-                }
-                if (!bateComAlvo(marcados[0].texto, textoOpcao)) {
-                    log(`❌ Marcou errada — abortando`);
-                    elStatus.textContent = '❌ Marcou errada — abortado';
+                if (!resultadoClique || !resultadoClique.ok) {
+                    elStatus.textContent = '❌ Marcou errada ou nada — abortado';
                     setModo('erro');
                     return false;
                 }
             }
 
-            if (!marcou) {
-                elStatus.textContent = '❌ Não marquei';
-                setModo('erro');
-                return false;
-            }
-
-            elStatus.textContent = '👆 Marcada. Enviando...';
+            elStatus.textContent = '👆 Confirmada. Enviando...';
 
             if (AUTOSUBMIT) {
-                await sleep(DELAY_POS_OPCAO);
+                await sleep(500);
                 const enviou = await clicarTerminar();
                 if (enviou) {
                     await sleep(DELAY_POS_TERMINAR);
@@ -699,16 +595,11 @@ Não escreva mais nada.`;
         modo = 'parado';
         setTimeout(() => painel.remove(), 100);
         window.__autoIA = null;
-        console.log('[AutoIA] Parado. Páginas:', paginasViradas);
     }
     painel.querySelector('#__btnParar').onclick = parar;
     painel.querySelector('#__btnKey').onclick = () => {
         const nova = prompt('Nova chave OpenRouter:', API_KEY);
         if (nova) { API_KEY = nova; localStorage.setItem('__or_key', nova); }
-    };
-    painel.querySelector('#__btnMem').onclick = () => {
-        const ctx = montarContexto();
-        alert(`📚 Memória: ${memoria.paginas.length} págs, ${memoria.charsTotal} chars\nContexto: ${ctx.length}\n\n--- Prévia ---\n${ctx.slice(0, 400)}...`);
     };
     btnRepetir.onclick = () => {
         const container = acharContainerQuestao();
@@ -716,12 +607,11 @@ Não escreva mais nada.`;
         if (processandoQuestao) { elStatus.textContent = '⏳ Já resolvendo'; return; }
         tentativaAtual++;
         pedidoRepetir = true;
-        log(`🔄 Repetir (tentativa ${tentativaAtual})`);
     };
 
     // ===================== INICIA =====================
     window.__autoIA = { parar };
-    console.log('[AutoIA] Ativo. Modelos:', MODELOS.length, '| Verificação:', VERIFICAR_ANTES_ENVIAR);
+    console.log('[AutoIA] Ativo. Clique + verificação após 1.5s.');
 
     setModo('folheando');
     loopPrincipal();
