@@ -1,16 +1,22 @@
-(async function autoReaderComIA() {
+(async function autoReaderAcumula() {
+    // ===================== SE JÁ RODANDO, PARA =====================
     if (window.__autoIA) { window.__autoIA.parar(); return; }
 
-    // ============ CONFIG ============
+    // ===================== CONFIG =====================
     const SEGUNDOS_PAGINA    = 5;
-    const MODELO             = 'openrouter/free';
-    const AUTOSUBMIT         = true;
+    const RODADAS_VOTACAO    = 3;
+    const TENTATIVAS_MODELO  = 4;
     const DELAY_ANTES_CLIQUE = 300;
     const DELAY_POS_OPCAO    = 900;
     const DELAY_POS_TERMINAR = 1200;
     const TIMEOUT_QUESTAO    = 60000;
     const ESPERA_POS_Q       = 2500;
+    const AUTOSUBMIT         = true;
+    const ENVIAR_SEMPRE      = true;
+    const MAX_CHARS_CONTEXTO = 12000;  // limite de tamanho do contexto enviado
+    const MAX_PAGINAS_GUARDADAS = 40;  // quantas páginas manter em memória
 
+    // ===================== API KEY =====================
     let API_KEY = localStorage.getItem('__or_key');
     if (!API_KEY) {
         API_KEY = prompt('Cole sua chave da OpenRouter (sk-or-v1-...):');
@@ -18,13 +24,87 @@
         localStorage.setItem('__or_key', API_KEY);
     }
 
-    // ============ PAINEL ============
+    // ===================== MEMÓRIA DE PÁGINAS =====================
+    const memoria = {
+        paginas: [],        // array de strings, uma por página
+        ultimoHash: '',     // hash da última página vista
+        charsTotal: 0
+    };
+
+    function hashPagina(txt) {
+        // hash simples: comprimento + primeiros + últimos 100 chars
+        const t = txt.trim();
+        return t.length + '|' + t.slice(0, 100) + '|' + t.slice(-100);
+    }
+
+    function capturarTextoPagina() {
+        const clone = document.body.cloneNode(true);
+        // remove a questão atual se estiver visível
+        const alvo = clone.querySelector('.page-switch-overlay-icon.next')
+                  || clone.querySelector('button[id="finish-btn"]');
+        if (alvo) {
+            let c = alvo, i = 0;
+            while (c && i < 15) {
+                const tt = (c.innerText || '').trim();
+                if (/tentativas\s+restantes/i.test(tt) && tt.length > 60) {
+                    c.remove(); break;
+                }
+                c = c.parentElement; i++;
+            }
+        }
+        const txt = clone.innerText || '';
+        return txt.split('\n').map(s => s.trim())
+            .filter(s => s.length > 2 && s.length < 800)
+            .filter(s =>
+                !/^(tentativas|terminar|bloco|fim da|página para|as aventuras|animais inventores)/i.test(s) &&
+                !/^[\d\s%x]+$/.test(s) &&
+                !/^\d+\.?\s*\d*\.\-/.test(s) &&
+                !/^\d+$/.test(s)
+            )
+            .join('\n');
+    }
+
+    function guardarPaginaAtual() {
+        const texto = capturarTextoPagina();
+        if (!texto || texto.length < 20) return;
+
+        const hash = hashPagina(texto);
+        if (hash === memoria.ultimoHash) return; // já guardei essa
+
+        memoria.ultimoHash = hash;
+        memoria.paginas.push(texto);
+        memoria.charsTotal += texto.length;
+
+        // limita memória
+        while (memoria.paginas.length > MAX_PAGINAS_GUARDADAS) {
+            const removida = memoria.paginas.shift();
+            memoria.charsTotal -= removida.length;
+        }
+        log(`📚 Página guardada (${texto.length} chars, total: ${memoria.paginas.length} págs, ${memoria.charsTotal} chars)`);
+    }
+
+    function montarContexto() {
+        if (memoria.paginas.length === 0) return '';
+        // pega as últimas páginas até atingir MAX_CHARS_CONTEXTO
+        const partes = [];
+        let total = 0;
+        for (let i = memoria.paginas.length - 1; i >= 0; i--) {
+            const p = memoria.paginas[i];
+            if (total + p.length > MAX_CHARS_CONTEXTO) break;
+            partes.unshift(p);
+            total += p.length;
+        }
+        return partes.join('\n\n---\n\n');
+    }
+
+    // ===================== PAINEL =====================
     const painel = document.createElement('div');
     painel.style.cssText = `
-        position:fixed; bottom:20px; right:20px; z-index:2147483647;
-        background:#1a1a1a; color:#fff; font:12px/1.45 system-ui,sans-serif;
-        padding:14px 16px; border-radius:10px; max-width:340px;
-        box-shadow:0 6px 25px rgba(0,0,0,.6); user-select:none;
+        position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
+        background: #1a1a1a; color: #fff;
+        font: 12px/1.45 system-ui, sans-serif;
+        padding: 14px 16px; border-radius: 10px; max-width: 340px;
+        box-shadow: 0 6px 25px rgba(0,0,0,.6); user-select: none;
     `;
     painel.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -33,15 +113,19 @@
             <strong id="__titulo">📖 Folheando</strong>
         </div>
         <div id="__contador" style="font-size:30px;font-weight:bold;text-align:center;
-             color:#4caf50;margin:4px 0;font-variant-numeric:tabular-nums;">5</div>
+             color:#4caf50;margin:4px 0;">5</div>
         <div id="__status" style="color:#ccc;font-size:11px;
              white-space:pre-wrap;margin-bottom:8px;min-height:36px;">
-             Páginas: <span id="__total" style="color:#fff;font-weight:bold;">0</span>
+            Páginas: <span id="__total" style="color:#fff;font-weight:bold;">0</span>
+            | Memória: <span id="__mem" style="color:#0f0;">0</span>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:6px;">
             <button id="__btnRepetir" style="flex:2;background:#ff9800;color:#fff;
                 border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;
-                cursor:pointer;">🔄 PERGUNTAR DE NOVO</button>
+                cursor:pointer;">🔄 DE NOVO</button>
+            <button id="__btnMem" style="flex:1;background:#2196f3;color:#fff;border:0;
+                padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;
+                cursor:pointer;">📚</button>
             <button id="__btnKey" style="flex:1;background:#333;color:#fff;border:0;
                 padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;
                 cursor:pointer;">🔑</button>
@@ -62,20 +146,26 @@
     const elTitulo   = painel.querySelector('#__titulo');
     const elContador = painel.querySelector('#__contador');
     const elTotal    = painel.querySelector('#__total');
+    const elMem      = painel.querySelector('#__mem');
     const elStatus   = painel.querySelector('#__status');
     const btnRepetir = painel.querySelector('#__btnRepetir');
 
-    let contador = SEGUNDOS_PAGINA;
-    let paginasViradas = 0;
-    let modo = 'folheando';
-    let ultimaQuestao = '';
-    let inicioQuestao = 0;
-    let tentativaAtual = 1;
+    // ===================== ESTADO =====================
+    let contador           = SEGUNDOS_PAGINA;
+    let paginasViradas     = 0;
+    let modo               = 'folheando';
+    let ultimaQuestao      = '';
+    let inicioQuestao      = 0;
+    let tentativaAtual     = 1;
     let processandoQuestao = false;
-    let pedidoRepetir = false;
+    let pedidoRepetir      = false;
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
-    function log(txt) { console.log('[AutoIA]', txt); }
+    const log = txt => console.log('[AutoIA]', txt);
+
+    function atualizarMem() {
+        elMem.textContent = memoria.charsTotal + 'c/' + memoria.paginas.length + 'p';
+    }
 
     function setModo(novo) {
         modo = novo;
@@ -94,7 +184,7 @@
         }
     }
 
-    // ============ DETECÇÃO ============
+    // ===================== DETECÇÃO =====================
     function acharBotaoTerminar() {
         for (const b of document.querySelectorAll('button')) {
             if (b.offsetParent === null) continue;
@@ -123,7 +213,7 @@
                 !/^terminar$/i.test(s) &&
                 !/^bloco\s*\d+/i.test(s)
             );
-        let pergunta = linhas.find(s => s.includes('?') && s.length > 20) || linhas[0];
+        const pergunta = linhas.find(s => s.includes('?') && s.length > 20) || linhas[0];
         const idx = linhas.indexOf(pergunta);
         const opcoes = linhas.slice(idx + 1)
             .filter(s => s.length > 2 && s.length < 300)
@@ -131,53 +221,12 @@
         return { pergunta, opcoes };
     }
 
-    // ============ PARSER ROBUSTO DA RESPOSTA DA IA ============
-    function extrairNumero(texto, totalOpcoes) {
-        if (!texto) return null;
-        const t = texto.trim();
-
-        // 1) Número isolado no começo
-        let m = t.match(/^\s*(\d+)\b/);
-        if (m) { const n = parseInt(m[1],10); if (n>=1 && n<=totalOpcoes) return n; }
-
-        // 2) Qualquer número isolado no texto
-        const nums = t.match(/\b(\d+)\b/g);
-        if (nums) {
-            for (const s of nums) {
-                const n = parseInt(s,10);
-                if (n>=1 && n<=totalOpcoes) return n;
-            }
-        }
-
-        // 3) Letra no começo: "A", "B.", "C)"
-        m = t.match(/^\s*([A-Da-d])\b/);
-        if (m) {
-            const n = m[1].toUpperCase().charCodeAt(0) - 64;
-            if (n>=1 && n<=totalOpcoes) return n;
-        }
-
-        // 4) Números por extenso
-        const extenso = { um:1, primeiro:1, primeira:1,
-                          dois:2, segundo:2, segunda:2,
-                          tres:3, 'três':3, terceiro:3, terceira:3,
-                          quatro:4, quarto:4, quarta:4 };
-        const tl = t.toLowerCase();
-        for (const palavra in extenso) {
-            if (new RegExp('\\b'+palavra+'\\b').test(tl)) {
-                const n = extenso[palavra];
-                if (n>=1 && n<=totalOpcoes) return n;
-            }
-        }
-        return null;
-    }
-
-    // ============ ENCONTRAR ELEMENTO DA OPÇÃO ============
+    // ===================== CLIQUE NA OPÇÃO =====================
     function acharElementoOpcao(texto, container) {
         if (!texto) return null;
         const alvo = texto.trim().toLowerCase();
         const abreviado = alvo.slice(0, 30);
         let melhor = null, melhorLen = Infinity;
-
         for (const el of container.querySelectorAll('*')) {
             if (el.children.length > 4) continue;
             const t = (el.innerText || '').trim().toLowerCase();
@@ -192,16 +241,13 @@
     function acharClicavel(el) {
         let c = el, up = 0;
         while (c && up < 10) {
-            if (c.tagName === 'MD-RADIO-BUTTON' ||
-                c.tagName === 'LABEL' ||
-                c.tagName === 'BUTTON' ||
-                c.tagName === 'INPUT') return c;
+            if (c.tagName === 'MD-RADIO-BUTTON' || c.tagName === 'LABEL' ||
+                c.tagName === 'BUTTON' || c.tagName === 'INPUT') return c;
             if (c.hasAttribute && (
-                c.hasAttribute('ng-click') ||
-                c.hasAttribute('ng-model') ||
+                c.hasAttribute('ng-click') || c.hasAttribute('ng-model') ||
                 c.getAttribute('role') === 'radio' ||
-                c.classList?.contains('md-radio-button') ||
-                c.classList?.contains('radio-button')
+                (c.classList && (c.classList.contains('md-radio-button') ||
+                                 c.classList.contains('radio-button')))
             )) return c;
             c = c.parentElement; up++;
         }
@@ -215,45 +261,40 @@
                             clicavel.parentElement;
             if (wrapper) {
                 if (wrapper.getAttribute('aria-checked') === 'true') return true;
-                if (wrapper.classList?.contains('md-checked')) return true;
+                if (wrapper.classList && wrapper.classList.contains('md-checked')) return true;
                 if (wrapper.querySelector('[aria-checked="true"], .md-checked')) return true;
             }
             if (alvo.querySelector('input[type="radio"]:checked')) return true;
-        } catch(_) {}
+        } catch (_) {}
         return false;
     }
 
     async function clicarOpcao(textoOpcao, container) {
         const alvo = acharElementoOpcao(textoOpcao, container);
-        if (!alvo) { log('❌ Não achou elemento da opção'); return false; }
-
+        if (!alvo) { log('❌ Não achou opção'); return false; }
         const clicavel = acharClicavel(alvo);
         log(`Clicando em <${clicavel.tagName.toLowerCase()}>`);
 
-        // 1) clique normal
         try { clicavel.click(); } catch(_) {}
-        await sleep(150);
+        await sleep(200);
         if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (click)'); return true; }
 
-        // 2) eventos de mouse completos
         try {
             const r = clicavel.getBoundingClientRect();
             const x = r.left + r.width/2, y = r.top + r.height/2;
-            ['mousedown','mouseup','click'].forEach(tipo => {
-                clicavel.dispatchEvent(new MouseEvent(tipo, {
+            ['mousedown','mouseup','click'].forEach(tp => {
+                clicavel.dispatchEvent(new MouseEvent(tp, {
                     bubbles: true, cancelable: true, view: window,
                     clientX: x, clientY: y, button: 0
                 }));
             });
         } catch(_) {}
-        await sleep(150);
-        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (mouse events)'); return true; }
+        await sleep(200);
+        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (mouse)'); return true; }
 
-        // 3) scope do Angular
         try {
             if (window.angular) {
-                let s = angular.element(clicavel).scope();
-                let n = 0;
+                let s = angular.element(clicavel).scope(), n = 0;
                 while (s && n < 10) {
                     if (s.$apply) {
                         s.$apply(() => {
@@ -267,10 +308,9 @@
                 }
             }
         } catch(_) {}
-        await sleep(150);
-        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (angular scope)'); return true; }
+        await sleep(200);
+        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (angular)'); return true; }
 
-        // 4) input radio interno
         try {
             const radio = clicavel.querySelector('input[type="radio"]');
             if (radio) {
@@ -278,10 +318,10 @@
                 radio.dispatchEvent(new Event('change', { bubbles: true }));
             }
         } catch(_) {}
-        await sleep(150);
-        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (input radio)'); return true; }
+        await sleep(200);
+        if (opcaoMarcada(clicavel, alvo)) { log('✅ Marcada (radio)'); return true; }
 
-        log('⚠️ Não confirmei marcação, mas segui adiante');
+        log('⚠️ Não confirmei marcação');
         return true;
     }
 
@@ -292,8 +332,8 @@
         try { btn.click(); } catch(_) {}
         await sleep(200);
         if (document.contains(btn) && btn.offsetParent !== null) {
-            ['mousedown','mouseup','click'].forEach(tipo => {
-                btn.dispatchEvent(new MouseEvent(tipo, {
+            ['mousedown','mouseup','click'].forEach(tp => {
+                btn.dispatchEvent(new MouseEvent(tp, {
                     bubbles: true, cancelable: true, view: window
                 }));
             });
@@ -301,17 +341,66 @@
         return true;
     }
 
-    // ============ OPENROUTER ============
-    async function perguntarIA(pergunta, opcoes, tentativa = 1) {
+    // ===================== CHAMADA À IA =====================
+    async function perguntarUmaVez(prompt, totalOpcoes, rodada) {
+        for (let t = 0; t < TENTATIVAS_MODELO; t++) {
+            try {
+                const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + API_KEY,
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': location.origin,
+                        'X-Title': 'QuizVote'
+                    },
+                    body: JSON.stringify({
+                        model: 'openrouter/free',
+                        messages: [
+                            { role: 'system', content: 'Responda apenas com um dígito. Nada mais.' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: rodada > 1 ? 0.5 : 0,
+                        max_tokens: 200
+                    })
+                });
+                if (!r.ok) { log(`  ⚠️ HTTP ${r.status}`); continue; }
+                const d = await r.json();
+                const raw = (d.choices && d.choices[0] &&
+                             d.choices[0].message &&
+                             d.choices[0].message.content || '').trim();
+                if (!raw) { log('  ⚠️ Vazio'); continue; }
+                const m = raw.match(/\d+/);
+                if (m) {
+                    const num = parseInt(m[0], 10);
+                    if (num >= 1 && num <= totalOpcoes) {
+                        const modelo = (d.model || '?').split('/').pop();
+                        return { num, raw, modelo };
+                    }
+                }
+            } catch (e) { log(`  ⚠️ ${e.message.slice(0,40)}`); }
+        }
+        return null;
+    }
+
+    // ===================== VOTAÇÃO =====================
+    async function votarQuestao(pergunta, opcoes, contexto) {
         const lista = opcoes.map((o, i) => `${i+1}. ${o}`).join('\n');
-        const variacoes = [
-            'Responda APENAS com o número da opção correta (ex: 2). Sem texto extra.',
-            'Responda apenas com um dígito (1, 2, 3 ou 4). Nada mais.',
-            'Escolha a opção correta e responda somente com o número dela.'
-        ];
-        const instrucao = variacoes[Math.min(tentativa - 1, variacoes.length - 1)];
-        const prompt =
-`Você responde questões de múltipla escolha em português.
+        const votos = {};
+        const detalhes = [];
+
+        const temContexto = contexto && contexto.length > 50;
+        const blocoContexto = temContexto
+            ? `TEXTO DO LIVRO (páginas lidas até agora):\n${contexto}`
+            : '(Sem texto do livro disponível)';
+
+        for (let r = 1; r <= RODADAS_VOTACAO; r++) {
+            log(`🗳️ Rodada ${r}/${RODADAS_VOTACAO}`);
+            elStatus.textContent = `🗳️ Votação ${r}/${RODADAS_VOTACAO}...`;
+
+            const prompts = [
+                `Você responde questões de interpretação de texto em português.
+
+${blocoContexto}
 
 PERGUNTA:
 ${pergunta}
@@ -319,40 +408,56 @@ ${pergunta}
 OPÇÕES:
 ${lista}
 
-${instrucao}
+Com base no texto acima, responda APENAS com o número (1-${opcoes.length}).`,
 
-FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
+                `Você é professor de português corrigindo prova escolar.
 
-        const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + API_KEY,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': location.origin,
-                'X-Title': 'LeiaParana Auto Reader'
-            },
-            body: JSON.stringify({
-                model: MODELO,
-                messages: [
-                    { role: 'system', content: 'Responda questões de múltipla escolha SEMPRE com apenas um dígito (1, 2, 3 ou 4). Nada mais.' },
-                    { role: 'user', content: prompt }
-                ],
-                temperature: tentativa > 1 ? 0.3 : 0,
-                max_tokens: 20
-            })
-        });
-        if (!r.ok) {
-            const erro = (await r.text()).slice(0, 180);
-            throw new Error(`OpenRouter ${r.status}: ${erro}`);
+${blocoContexto}
+
+QUESTÃO:
+${pergunta}
+
+ALTERNATIVAS:
+${lista}
+
+Qual a ÚNICA alternativa correta segundo o texto? Responda apenas o número (1-${opcoes.length}).`,
+
+                `Analise a questão de interpretação usando o texto fornecido.
+
+${blocoContexto}
+
+PERGUNTA:
+${pergunta}
+
+RESPOSTAS:
+${lista}
+
+Número da resposta correta:`
+            ];
+
+            const prompt = prompts[(r - 1) % prompts.length];
+            const res = await perguntarUmaVez(prompt, opcoes.length, r);
+
+            if (!res) { log('  ❌ Sem resposta'); continue; }
+            log(`  → ${res.num} (via ${res.modelo})`);
+            votos[res.num] = (votos[res.num] || 0) + 1;
+            detalhes.push(res.num);
         }
-        const data = await r.json();
-        const raw = (data?.choices?.[0]?.message?.content || '').trim();
-        const num = extrairNumero(raw, opcoes.length);
-        return { num, raw, modelo: data?.model || MODELO };
+
+        let maxVotos = 0, vencedor = null, empate = false;
+        for (const k in votos) {
+            if (votos[k] > maxVotos) {
+                maxVotos = votos[k]; vencedor = parseInt(k, 10); empate = false;
+            } else if (votos[k] === maxVotos) {
+                empate = true;
+            }
+        }
+
+        return { vencedor, votos, detalhes, empate };
     }
 
-    // ============ RESOLVER ============
-    async function resolverQuestao(container, tentativa = 1) {
+    // ===================== RESOLVER QUESTÃO =====================
+    async function resolverQuestao(container, tentativa) {
         setModo('resolvendo');
         try {
             const { pergunta, opcoes } = extrairQuestao(container);
@@ -361,25 +466,30 @@ FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
                 return false;
             }
 
-            elStatus.textContent = `🧠 (t.${tentativa}) "${pergunta.slice(0, 45)}..."`;
-            const ia = await perguntarIA(pergunta, opcoes, tentativa);
-            log(`Raw da IA: "${ia.raw}"`);
+            const contexto = montarContexto();
+            log(`Contexto: ${contexto.length} chars de ${memoria.paginas.length} páginas`);
+            elStatus.textContent = `🧠 "${pergunta.slice(0, 40)}..." | ctx ${contexto.length}c`;
 
-            if (ia.num === null) {
-                elStatus.textContent =
-                    `❌ IA não devolveu número.\nRaw: "${ia.raw.slice(0,60)}"`;
+            const resultado = await votarQuestao(pergunta, opcoes, contexto);
+            const { vencedor, votos, detalhes, empate } = resultado;
+
+            if (!vencedor) {
+                elStatus.textContent = '❌ Nenhuma resposta';
                 return false;
             }
 
-            const idx = ia.num - 1;
-            if (isNaN(idx) || idx < 0 || idx >= opcoes.length) {
-                elStatus.textContent = `❌ Fora do range: ${ia.num}`;
-                return false;
+            const votosStr = `[${detalhes.join(',')}]`;
+            log(`Votos: ${JSON.stringify(votos)} | Seq: ${votosStr}`);
+
+            if (empate) {
+                log('⚠️ EMPATE detectado');
+                elStatus.textContent = `⚠️ Empate ${votosStr} — resolva manual`;
+                if (!ENVIAR_SEMPRE) return false;
             }
 
-            const textoOpcao = opcoes[idx];
-            elStatus.textContent = `✅ (${ia.num}) ${textoOpcao.slice(0, 45)}`;
-            log(`IA (${ia.modelo}) escolheu (${ia.num}): ${textoOpcao}`);
+            const textoOpcao = opcoes[vencedor - 1];
+            elStatus.textContent = `✅ (${vencedor}) ${textoOpcao.slice(0, 35)} ${votosStr}`;
+            log(`Escolhido (${vencedor}): ${textoOpcao}`);
 
             await sleep(DELAY_ANTES_CLIQUE);
             const marcou = await clicarOpcao(textoOpcao, container);
@@ -391,7 +501,7 @@ FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
                 const enviou = await clicarTerminar();
                 if (enviou) {
                     await sleep(DELAY_POS_TERMINAR);
-                    elStatus.textContent = `📤 Enviado (t.${tentativa})!`;
+                    elStatus.textContent = `📤 Enviado! ${votosStr}`;
                 } else {
                     elStatus.textContent = '⚠️ TERMINAR não achado';
                 }
@@ -404,8 +514,12 @@ FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
         }
     }
 
-    // ============ LOOP ============
+    // ===================== LOOP PRINCIPAL =====================
     async function loopPrincipal() {
+        // Guarda a página atual imediatamente
+        guardarPaginaAtual();
+        atualizarMem();
+
         while (modo !== 'parado') {
             const container = acharContainerQuestao();
             if (container && !processandoQuestao) {
@@ -436,12 +550,23 @@ FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
 
             contador--;
             elContador.textContent = contador;
+
+            // A cada 1s, tenta capturar a página atual (caso texto mude no meio)
+            guardarPaginaAtual();
+            atualizarMem();
+
             if (contador <= 0) {
+                // Antes de virar, garante que a página atual foi guardada
+                guardarPaginaAtual();
                 avancarPagina();
                 paginasViradas++;
                 elTotal.textContent = paginasViradas;
                 contador = SEGUNDOS_PAGINA;
                 elContador.textContent = contador;
+                // Espera um pouco pra próxima página carregar
+                await sleep(800);
+                guardarPaginaAtual();
+                atualizarMem();
             }
         }
     }
@@ -467,7 +592,7 @@ FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
         }));
     }
 
-    // ============ BOTÕES ============
+    // ===================== BOTÕES =====================
     function parar() {
         modo = 'parado';
         setTimeout(() => painel.remove(), 100);
@@ -479,6 +604,17 @@ FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
         const nova = prompt('Nova chave OpenRouter:', API_KEY);
         if (nova) { API_KEY = nova; localStorage.setItem('__or_key', nova); }
     };
+    painel.querySelector('#__btnMem').onclick = () => {
+        const ctx = montarContexto();
+        alert(
+            `📚 MEMÓRIA\n\n` +
+            `Páginas guardadas: ${memoria.paginas.length}\n` +
+            `Total de chars: ${memoria.charsTotal}\n` +
+            `Contexto a enviar: ${ctx.length} chars\n\n` +
+            `--- PRÉVIA (início) ---\n` +
+            ctx.slice(0, 400) + '...'
+        );
+    };
     btnRepetir.onclick = () => {
         const container = acharContainerQuestao();
         if (!container) { elStatus.textContent = '⚠️ Nenhuma questão na tela'; return; }
@@ -488,8 +624,9 @@ FORMATO OBRIGATÓRIO: apenas o número (1, 2, 3 ou 4).`;
         log(`🔄 Repetir (tentativa ${tentativaAtual})`);
     };
 
+    // ===================== INICIA =====================
     window.__autoIA = { parar };
-    console.log('[AutoIA] Ativo. Modelo:', MODELO, '| Autosubmit:', AUTOSUBMIT);
+    console.log('[AutoIA] Ativo com memória de páginas. Votação:', RODADAS_VOTACAO);
 
     setModo('folheando');
     loopPrincipal();
