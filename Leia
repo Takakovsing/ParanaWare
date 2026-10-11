@@ -8,7 +8,7 @@
   const MODELO = 'openrouter/auto';
   const MAX_PAGINAS = 5;
   const MAX_CHARS = 2000;
-  const CHAVE = 'CHAVE_OPENROUTER'; // <<< coloque aqui
+  let CHAVE = localStorage.getItem('__arKey') || '';
   // ==========================================
 
   // ---------- Estado ----------
@@ -29,7 +29,7 @@
   const css = document.createElement('style');
   css.textContent = `
     #arBox{position:fixed;top:12px;right:12px;z-index:999999;background:#1b1b1f;color:#eaeaea;
-      font:12px system-ui,sans-serif;padding:10px;border-radius:12px;width:230px;
+      font:12px system-ui,sans-serif;padding:10px;border-radius:12px;width:240px;
       box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:8px;
       cursor:move;user-select:none;border:1px solid #2a2a32}
     #arBox .t{font-weight:700;text-align:center;font-size:13px}
@@ -44,8 +44,13 @@
     #arBox .bf{font-size:10px;opacity:.5;text-align:center}
     #arBox .x{position:absolute;top:6px;right:8px;cursor:pointer;opacity:.4;font-size:14px}
     #arBox .x:hover{opacity:1;color:#ef4444}
-    #arBox input{width:60px;background:#242429;color:#eaeaea;border:1px solid #333;
-      border-radius:6px;padding:4px;font:11px system-ui;text-align:center}
+    #arBox input{background:#242429;color:#eaeaea;border:1px solid #333;
+      border-radius:6px;padding:5px 6px;font:11px monospace}
+    #arBox .krow{display:flex;gap:6px;align-items:center}
+    #arBox .krow input{flex:1;min-width:0}
+    #arBox .krow button{all:unset;cursor:pointer;padding:5px 8px;background:#333;border-radius:6px;font-size:11px}
+    #arBox .krow button:hover{background:#444}
+    #arBox .num{width:60px;text-align:center;font:11px system-ui}
   `;
   document.head.appendChild(css);
 
@@ -54,10 +59,14 @@
   box.innerHTML = `
     <div class="x" id="arX">✕</div>
     <div class="t">📘 Auto Leitor</div>
+    <div class="krow">
+      <input id="arKey" type="password" placeholder="sk-or-v1-...">
+      <button id="arSave" title="Salvar chave">💾</button>
+    </div>
     <div class="r"><span>Auto Answer</span><div class="s" id="sA"></div></div>
     <div class="r"><span>Auto Next Page</span><div class="s" id="sP"></div></div>
     <div class="r"><span>Timer Bypass</span><div class="s" id="sT"></div></div>
-    <div class="r"><span>Tempo/pág (s)</span><input id="arT" type="number" value="1800" min="1"></div>
+    <div class="r"><span>Tempo/pág (s)</span><input id="arT" class="num" type="number" value="1800" min="1"></div>
     <button class="b" id="arGo">▶ Iniciar</button>
     <div class="st" id="arSt">Pronto</div>
     <div class="bf" id="arBf">📖 0 páginas</div>
@@ -68,7 +77,19 @@
   const status = (t) => $('arSt').textContent = t;
   const refreshBuf = () => $('arBf').textContent = '📖 ' + buffer.length + ' páginas';
 
-  // arrastar
+  // ---------- Chave ----------
+  $('arKey').value = CHAVE;
+  $('arKey').addEventListener('focus', (e) => e.target.select());
+  $('arSave').onclick = () => {
+    CHAVE = $('arKey').value.trim();
+    localStorage.setItem('__arKey', CHAVE);
+    status(CHAVE ? '🔑 Chave salva' : '⚠️ Chave vazia');
+  };
+  $('arKey').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('arSave').click();
+  });
+
+  // ---------- Arrastar ----------
   let dx = 0, dy = 0, down = false;
   box.addEventListener('mousedown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
@@ -91,7 +112,7 @@
     window.__arInit = false;
   };
 
-  // toggles
+  // ---------- Toggles ----------
   function sw(id, cb) {
     const el = $(id);
     el.onclick = () => { el.classList.toggle('on'); cb(el.classList.contains('on')); };
@@ -106,7 +127,7 @@
   $('arT').onchange = (e) => tempoPag = parseInt(e.target.value) || 1800;
 
   $('arGo').onclick = () => {
-    if (!CHAVE || CHAVE === 'CHAVE_OPENROUTER') { status('⚠️ Falta a chave'); return; }
+    if (!CHAVE) { status('⚠️ Cole a chave'); $('arKey').focus(); return; }
     status('▶ Rodando');
     if (autoAnswer && !timerAnswer) timerAnswer = setInterval(loopAnswer, 2000);
     if (autoNextPage && !timerPage) timerPage = setInterval(loopPage, 2000);
@@ -268,10 +289,8 @@
       const real = Math.floor((Date.now() - inicioBypass) / 1000);
       const novo = Math.max(0, tempoOriginal - real);
       acharTimers().forEach(el => { el.textContent = formataSeg(novo); });
-      // pequeno "sinal de vida" pra aba não dormir
       try {
-        const ev = new Event('mousemove', { bubbles: false });
-        document.dispatchEvent(ev);
+        document.dispatchEvent(new Event('mousemove', { bubbles: false }));
       } catch (e) {}
       if (novo <= 0) { clearInterval(bypassInterval); bypassInterval = null; }
     }, 1000);
