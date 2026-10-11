@@ -65,6 +65,8 @@
   transition:opacity .2s,transform .2s,visibility .2s;isolation:isolate;
 }
 #arFloat.arMini{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.82)}
+#arFloat.arBlocked .arToggleRow,
+#arFloat.arBlocked #arTempo{opacity:.35;pointer-events:none}
 #arHead{position:relative;min-height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;letter-spacing:1.4px;margin-bottom:10px}
 #arDragHandle{cursor:grab;touch-action:none;padding:5px 12px;border-radius:8px;user-select:none;-webkit-user-select:none}
 #arDragHandle:active{cursor:grabbing;background:#ffffff10}
@@ -72,10 +74,10 @@
 #arEditApi:hover{background:#ffffff22}
 #arLine{height:1px;margin-bottom:10px;background:linear-gradient(90deg,transparent,#ffffff50,transparent)}
 .arLabel{display:block;color:#a8a8b3;font-size:9px;font-weight:bold;letter-spacing:1.2px;margin:10px 0 6px}
-.arToggleRow{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:7px;background:#ffffff08;border:1px solid #ffffff18;border-radius:9px;font-size:11px;color:#ddd;font-weight:bold;cursor:pointer;user-select:none;-webkit-user-select:none;letter-spacing:.3px}
+.arToggleRow{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:7px;background:#ffffff08;border:1px solid #ffffff18;border-radius:9px;font-size:11px;color:#ddd;font-weight:bold;cursor:pointer;user-select:none;-webkit-user-select:none;letter-spacing:.3px;transition:opacity .2s}
 .arToggleRow input{width:14px;height:14px;margin:0;flex-shrink:0;accent-color:#39ff78;cursor:pointer}
 .arToggleRow.arOn{border-color:#39ff7850;background:#39ff780f;color:#c8ffdc}
-#arFloat input[type=number]{display:block;width:100%;box-sizing:border-box;background:rgba(0,0,0,.38);color:#eee;border:1px solid #ffffff20;border-radius:9px;padding:8px;outline:none;font-family:inherit;font-size:12px;text-align:center}
+#arFloat input[type=number]{display:block;width:100%;box-sizing:border-box;background:rgba(0,0,0,.38);color:#eee;border:1px solid #ffffff20;border-radius:9px;padding:8px;outline:none;font-family:inherit;font-size:12px;text-align:center;transition:opacity .2s}
 #arFloat input:focus{border-color:#ffffff65;box-shadow:0 0 12px #ffffff0c}
 #arFloat button.arAction{display:block;width:100%;min-height:36px;border:1px solid #ffffff20;border-radius:10px;padding:9px;margin-top:8px;background:linear-gradient(135deg,#ffffff18,#ffffff08);color:#eee;font-family:inherit;font-weight:bold;font-size:12px;cursor:pointer;transition:background .2s,transform .2s;letter-spacing:.6px}
 #arFloat button.arAction:active{transform:scale(.98)}
@@ -108,6 +110,7 @@
   // ================= HTML =================
   const gui = document.createElement('div');
   gui.id = 'arFloat';
+  gui.classList.add('arBlocked'); // começa bloqueado
   gui.innerHTML = `
 <div id="arHead">
     <span id="arDragHandle">LEIAWARE</span>
@@ -123,7 +126,7 @@
 <input id="arTempo" type="number" value="1800" min="1">
 
 <button id="arGo" class="arAction" type="button">INICIAR</button>
-<div class="arStatus" id="arStatus">Pronto</div>
+<div class="arStatus" id="arStatus">Configure e clique INICIAR</div>
 <div class="arBuf" id="arBuf">0 paginas</div>
   `;
   document.body.appendChild(gui);
@@ -168,24 +171,51 @@
   $('arEditApi').addEventListener('pointerdown', e => e.stopPropagation());
   $('arEditApi').onclick = e => { e.stopPropagation(); pedirChave(); };
 
-  // ---------- Toggles ----------
+  // ---------- Toggles (só funcionam com rodando) ----------
   function bindToggle(rowId, inputId, onChange) {
     const row = $(rowId), inp = $(inputId);
     row.addEventListener('click', e => {
+      if (!rodando) {
+        e.preventDefault();
+        e.stopPropagation();
+        notify('Clique em INICIAR primeiro');
+        return;
+      }
       if (e.target !== inp) inp.checked = !inp.checked;
       row.classList.toggle('arOn', inp.checked);
       onChange(inp.checked);
     });
+    // impede o input nativo de trocar sozinho quando bloqueado
+    inp.addEventListener('click', e => {
+      if (!rodando) { e.preventDefault(); notify('Clique em INICIAR primeiro'); }
+    });
   }
-  bindToggle('arRowA', 'arAutoAnswer', v => { autoAnswer = v; status('Auto Answer: ' + (v ? 'ON' : 'OFF')); });
-  bindToggle('arRowP', 'arAutoPage',   v => { autoNextPage = v; status('Auto Next Page: ' + (v ? 'ON' : 'OFF')); });
-  bindToggle('arRowT', 'arTimerBypass', v => {
-    timerBypass = v;
-    if (v) { iniciarBypass(); status('Timer Bypass: ON'); }
-    else { if (bypassInterval) { clearInterval(bypassInterval); bypassInterval = null; } status('Timer Bypass: OFF'); }
+
+  bindToggle('arRowA', 'arAutoAnswer', v => {
+    autoAnswer = v;
+    status('Auto Answer: ' + (v ? 'ON' : 'OFF'));
+    if (rodando && v && !timerAnswer) timerAnswer = setInterval(loopAnswer, 2000);
+    if (!v && timerAnswer) { clearInterval(timerAnswer); timerAnswer = null; }
   });
 
-  $('arTempo').onchange = e => tempoPag = parseInt(e.target.value) || 1800;
+  bindToggle('arRowP', 'arAutoPage', v => {
+    autoNextPage = v;
+    status('Auto Next Page: ' + (v ? 'ON' : 'OFF'));
+    if (rodando && v && !timerPage) timerPage = setInterval(loopPage, 2000);
+    if (!v && timerPage) { clearInterval(timerPage); timerPage = null; }
+  });
+
+  bindToggle('arRowT', 'arTimerBypass', v => {
+    timerBypass = v;
+    status('Timer Bypass: ' + (v ? 'ON' : 'OFF'));
+    if (rodando && v && !bypassInterval) iniciarBypass();
+    if (!v && bypassInterval) { clearInterval(bypassInterval); bypassInterval = null; }
+  });
+
+  $('arTempo').onchange = e => {
+    if (!rodando) { notify('Clique em INICIAR primeiro'); e.target.value = tempoPag; return; }
+    tempoPag = parseInt(e.target.value) || 1800;
+  };
 
   // ---------- Botão Iniciar/Pausar ----------
   const btnGo = $('arGo');
@@ -217,6 +247,7 @@
     if (!apiKey) { notify('Configure a API primeiro'); pedirChave(); return; }
     rodando = true;
     lockAte = 0;
+    gui.classList.remove('arBlocked');  // destrava os toggles
     if (autoAnswer && !timerAnswer) timerAnswer = setInterval(loopAnswer, 2000);
     if (autoNextPage && !timerPage) timerPage = setInterval(loopPage, 2000);
     if (timerBypass && !bypassInterval) iniciarBypass();
@@ -236,8 +267,29 @@
   };
   const temPergunta = () => !!document.querySelector('.question-quiz-text.ng-binding');
 
-  function temBotaoPergunta() {
-    return [...document.querySelectorAll('button[aria-label="Pergunta"]')].some(naTela);
+  // Verifica se o botão "Pergunta" está com ícone NÃO respondido (quiz) 
+  // em vez de respondido (quiz_answer)
+  function iconeRespondido(btn) {
+    const icon = btn.querySelector('md-icon');
+    if (!icon) return false;
+    const tipo = icon.getAttribute('md-svg-icon') || '';
+    if (tipo === 'quiz_answer') return true;
+    // às vezes o md-svg-icon não existe mas o svg tem id
+    const svg = icon.querySelector('svg');
+    return !!(svg && svg.id === 'quiz_answer');
+  }
+
+  // Só retorna true se houver botão "Pergunta" com ícone de NÃO respondida
+  function temBotaoPerguntaPendente() {
+    return [...document.querySelectorAll('button[aria-label="Pergunta"]')]
+      .filter(naTela)
+      .some(btn => !iconeRespondido(btn));
+  }
+
+  function pegarBotaoPerguntaPendente() {
+    return [...document.querySelectorAll('button[aria-label="Pergunta"]')]
+      .filter(naTela)
+      .find(btn => !iconeRespondido(btn));
   }
 
   // ---------- Leitura ----------
@@ -366,7 +418,7 @@
   const format = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 
   function iniciarBypass() {
-    if (!timerBypass) return;
+    if (!timerBypass || !rodando) return;
     const els = acharTimers();
     if (!els.length) { status('Sem timer visivel'); return; }
     tempoOriginal = paraSeg(els[0].textContent.trim());
@@ -434,6 +486,7 @@
     if (!rodando || !autoNextPage) return;
     if (processando) return;
 
+    // Se tem pergunta aberta, o loopAnswer cuida
     if (temPergunta()) {
       const pEl = document.querySelector('.question-quiz-text.ng-binding');
       const chave = hash((pEl.innerText || '').trim());
@@ -446,8 +499,9 @@
 
     if (Date.now() < lockAte) return;
 
-    if (temBotaoPergunta()) {
-      const btn = [...document.querySelectorAll('button[aria-label="Pergunta"]')].find(naTela);
+    // Só clica no botão "Pergunta" se o ícone for de NÃO respondida
+    if (temBotaoPerguntaPendente()) {
+      const btn = pegarBotaoPerguntaPendente();
       if (btn) {
         btn.click();
         status('Abrindo pergunta...');
@@ -456,6 +510,7 @@
       }
     }
 
+    // Nenhuma pergunta pendente → vira a página
     capturar();
 
     try {
@@ -581,7 +636,7 @@
     }
   });
 
-  status('Pronto');
+  status('Configure e clique INICIAR');
   refreshBuf();
   notify('LeiaWare carregada!');
   console.log('[LeiaWare] Pronto.');
