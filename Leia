@@ -8,13 +8,14 @@
   const MODELO = 'openrouter/auto';
   const MAX_PAGINAS = 5;
   const MAX_CHARS = 2000;
-  let CHAVE = localStorage.getItem('__arKey') || '';
+  const ICONE = "https://media.tenor.com/m11vauEEbcUAAAAM/meow-neko-arc.gif";
   // ==========================================
 
   // ---------- Estado ----------
   let autoAnswer = false;
   let autoNextPage = false;
   let timerBypass = false;
+  let rodando = false;
   let processando = false;
   let timerPage = null;
   let timerAnswer = null;
@@ -22,132 +23,209 @@
   let tempoPag = 1800;
   let tempoOriginal = 0;
   let inicioBypass = 0;
+  let minimized = false;
+  let notifyTimer;
+  let apiKey = localStorage.getItem('__arKey') || '';
   const buffer = [];
   let ultimaPagina = '';
 
-  // ================= UI =================
-  const css = document.createElement('style');
-  css.textContent = `
-    #arBox{position:fixed;top:12px;right:12px;z-index:999999;background:#1b1b1f;color:#eaeaea;
-      font:12px system-ui,sans-serif;padding:10px;border-radius:12px;width:240px;
-      box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:8px;
-      cursor:move;user-select:none;border:1px solid #2a2a32}
-    #arBox .t{font-weight:700;text-align:center;font-size:13px}
-    #arBox .r{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    #arBox .s{width:38px;height:20px;background:#333;border-radius:20px;position:relative;cursor:pointer;transition:.2s;flex-shrink:0}
-    #arBox .s::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
-    #arBox .s.on{background:#10b981}
-    #arBox .s.on::after{transform:translateX(18px)}
-    #arBox .b{all:unset;text-align:center;padding:7px;border-radius:8px;background:#3b82f6;color:#fff;font-weight:600;cursor:pointer;font-size:12px}
-    #arBox .b:hover{background:#2563eb}
-    #arBox .st{font-size:11px;opacity:.7;text-align:center;min-height:14px}
-    #arBox .bf{font-size:10px;opacity:.5;text-align:center}
-    #arBox .x{position:absolute;top:6px;right:8px;cursor:pointer;opacity:.4;font-size:14px}
-    #arBox .x:hover{opacity:1;color:#ef4444}
-    #arBox input{background:#242429;color:#eaeaea;border:1px solid #333;
-      border-radius:6px;padding:5px 6px;font:11px monospace}
-    #arBox .krow{display:flex;gap:6px;align-items:center}
-    #arBox .krow input{flex:1;min-width:0}
-    #arBox .krow button{all:unset;cursor:pointer;padding:5px 8px;background:#333;border-radius:6px;font-size:11px}
-    #arBox .krow button:hover{background:#444}
-    #arBox .num{width:60px;text-align:center;font:11px system-ui}
+  const $ = id => document.getElementById(id);
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+
+  // ---------- Favicon ----------
+  let favicon = document.querySelector('link[rel~="icon"]');
+  if (!favicon) {
+    favicon = document.createElement('link');
+    favicon.rel = 'icon';
+    document.head.appendChild(favicon);
+  }
+  favicon.href = ICONE;
+
+  // ================= CSS =================
+  const style = document.createElement('style');
+  style.id = 'arStyle';
+  style.textContent = `
+#arFloat,#arToggle,#arNotify{box-sizing:border-box}
+#arFloat{position:fixed;right:20px;bottom:100px;width:min(330px,calc(100vw - 24px));max-height:calc(100dvh - 120px);overflow-y:auto;overflow-x:hidden;padding:16px;color:#eee;background:radial-gradient(ellipse at 50% 0%,#ffffff17,transparent 65%),rgba(12,12,16,.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid #ffffff30;border-radius:20px;z-index:2147483640;font-family:"Trebuchet MS",Arial,sans-serif;box-shadow:0 15px 50px #000b,0 0 20px #ffffff08;isolation:isolate;scrollbar-width:thin;scrollbar-color:#444 transparent;transition:opacity .2s,transform .2s}
+#arFloat:before{content:"";position:absolute;inset:0;border-radius:20px;background:conic-gradient(transparent,#ffffff0b,transparent,#ffffff08,transparent);animation:arPanelGlow 8s linear infinite;pointer-events:none;z-index:-1}
+@keyframes arPanelGlow{to{transform:rotate(360deg)}}
+#arFloat.arMini{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.82)}
+#arHead{position:relative;min-height:32px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:900;letter-spacing:1.5px;margin-bottom:12px}
+#arDragHandle{cursor:grab;touch-action:none;padding:6px 14px;border-radius:8px;user-select:none;-webkit-user-select:none}
+#arDragHandle:active{cursor:grabbing;background:#ffffff10}
+#arEditApi{position:absolute;right:0;top:-3px;width:31px;height:31px;padding:0;border:1px solid #ffffff30;border-radius:9px;background:#ffffff10;color:#fff;font-size:11px;font-weight:bold;cursor:pointer;font-family:inherit}
+#arLine{height:1px;margin-bottom:14px;background:linear-gradient(90deg,transparent,#ffffff55,transparent)}
+.arLabel{display:block;color:#a8a8b3;font-size:10px;font-weight:bold;letter-spacing:1.3px;margin:13px 0 8px}
+.arToggleRow{display:flex;align-items:center;gap:9px;padding:10px 12px;margin-top:10px;background:linear-gradient(135deg,#ffffff0a,#ffffff03);border:1px solid #ffffff18;border-radius:11px;font-size:12px;color:#ddd;font-weight:bold;cursor:pointer;user-select:none;-webkit-user-select:none}
+.arToggleRow input{width:16px;height:16px;margin:0;flex-shrink:0;accent-color:#39ff78;cursor:pointer}
+.arToggleRow.arOn{border-color:#39ff7850;background:linear-gradient(135deg,#39ff780f,#39ff7803);color:#c8ffdc}
+#arFloat input[type=number]{display:block;width:100%;box-sizing:border-box;background:rgba(0,0,0,.38);color:#eee;border:1px solid #ffffff20;border-radius:12px;padding:11px;outline:none;font-family:inherit;font-size:13px;text-align:center}
+#arFloat input:focus{border-color:#ffffff65;box-shadow:0 0 15px #ffffff0c}
+#arFloat button.arAction{display:block;width:100%;min-height:43px;border:1px solid #ffffff20;border-radius:12px;padding:12px;margin-top:9px;background:linear-gradient(135deg,#ffffff18,#ffffff08);color:#eee;font-family:inherit;font-weight:bold;font-size:12px;cursor:pointer;transition:background .2s,transform .2s;letter-spacing:.5px}
+#arFloat button.arAction:active{transform:scale(.98)}
+#arGo{background:linear-gradient(110deg,#fff,#c7c7d0)!important;color:#101014!important;box-shadow:0 0 16px #ffffff12}
+#arGo.arRunning{background:linear-gradient(110deg,#ff8a8a,#c7c7d0)!important;color:#101014!important}
+#arGo.arPaused{background:linear-gradient(110deg,#f5d76e,#fff)!important;color:#101014!important}
+.arStatus{font-size:11px;color:#9a9aa3;text-align:center;padding:8px 4px 4px;line-height:1.4;min-height:16px}
+.arBuf{font-size:10px;color:#7f7f88;text-align:center;padding:2px 0}
+#arToggle{position:fixed;right:20px;bottom:25px;width:62px;height:62px;padding:4px;border:1px solid #000;border-radius:50%;background:#050505;z-index:2147483641;cursor:grab;display:flex;align-items:center;justify-content:center;isolation:isolate;touch-action:none;box-shadow:0 5px 20px #000b;user-select:none;-webkit-user-select:none}
+#arToggle:before{content:"";position:absolute;inset:-4px;border-radius:50%;background:conic-gradient(#101010,#44444a,#bdbdc8,#fff,#65656d,#171717,#aaaab4,#101010);animation:arRingRotate 2.2s linear infinite;z-index:-1;pointer-events:none;transition:inset .25s ease,box-shadow .25s ease}
+#arToggle:after{content:"";position:absolute;inset:0;border:1px solid #000;border-radius:50%;pointer-events:none}
+#arToggle img{width:100%;height:100%;object-fit:cover;border-radius:50%;pointer-events:none}
+@keyframes arRingRotate{to{transform:rotate(360deg)}}
+#arToggle.arAura{animation:arAura 3s ease-in-out infinite}
+@keyframes arAura{0%,100%{box-shadow:0 0 7px #ffffff18,0 8px 25px #000b}50%{box-shadow:0 0 18px #ffffff50,0 0 30px #ffffff16,0 8px 25px #000b}}
+#arToggle.arPressed{transform:scale(.9);filter:brightness(1.3)}
+#arToggle.arWorking:before{inset:-8px;background:conic-gradient(#003b19,#006b2b,#00a83b,#39ff78,#008f35,#004d20,#20e85b,#003b19);animation:arRingRotate .8s linear infinite;box-shadow:0 0 8px #00ff5570,0 0 18px #00ff5545}
+#arToggle.arOk:before{background:conic-gradient(#003b19,#00ff70,#b0ffc9,#00a83b,#003b19);box-shadow:0 0 12px #00ff7070}
+#arToggle.arErr:before{background:conic-gradient(#450000,#ff4545,#ffaaaa,#a00000,#450000);box-shadow:0 0 12px #ff454570}
+#arNotify{position:fixed;top:25px;left:50%;transform:translateX(-50%) translateY(-20px);background:rgba(18,18,21,.97);color:#fff;padding:11px 18px;border:1px solid #ffffff30;border-radius:11px;font-family:"Trebuchet MS",Arial,sans-serif;font-weight:bold;font-size:13px;z-index:2147483642;opacity:0;transition:opacity .3s,transform .35s;box-shadow:0 8px 25px #0008;pointer-events:none;max-width:85vw;text-align:center}
+@media(max-width:360px){#arFloat{padding:13px}#arHead{font-size:15px}}
   `;
-  document.head.appendChild(css);
+  document.head.appendChild(style);
 
-  const box = document.createElement('div');
-  box.id = 'arBox';
-  box.innerHTML = `
-    <div class="x" id="arX">✕</div>
-    <div class="t">📘 Auto Leitor</div>
-    <div class="krow">
-      <input id="arKey" type="password" placeholder="sk-or-v1-...">
-      <button id="arSave" title="Salvar chave">💾</button>
-    </div>
-    <div class="r"><span>Auto Answer</span><div class="s" id="sA"></div></div>
-    <div class="r"><span>Auto Next Page</span><div class="s" id="sP"></div></div>
-    <div class="r"><span>Timer Bypass</span><div class="s" id="sT"></div></div>
-    <div class="r"><span>Tempo/pág (s)</span><input id="arT" class="num" type="number" value="1800" min="1"></div>
-    <button class="b" id="arGo">▶ Iniciar</button>
-    <div class="st" id="arSt">Pronto</div>
-    <div class="bf" id="arBf">📖 0 páginas</div>
+  // ================= HTML =================
+  const gui = document.createElement('div');
+  gui.id = 'arFloat';
+  gui.innerHTML = `
+<div id="arHead">
+    <span id="arDragHandle">LEIA-ME IA</span>
+    <button id="arEditApi" type="button" title="Configurar API">API</button>
+</div>
+<div id="arLine"></div>
+
+<label class="arToggleRow" id="arRowA"><input type="checkbox" id="arAutoAnswer"><span>AUTO ANSWER</span></label>
+<label class="arToggleRow" id="arRowP"><input type="checkbox" id="arAutoPage"><span>AUTO NEXT PAGE</span></label>
+<label class="arToggleRow" id="arRowT"><input type="checkbox" id="arTimerBypass"><span>TIMER BYPASS</span></label>
+
+<span class="arLabel">TEMPO POR PÁGINA (S)</span>
+<input id="arTempo" type="number" value="1800" min="1">
+
+<button id="arGo" class="arAction" type="button">▶ INICIAR</button>
+<div class="arStatus" id="arStatus">Pronto</div>
+<div class="arBuf" id="arBuf">📖 0 páginas</div>
   `;
-  document.body.appendChild(box);
+  document.body.appendChild(gui);
 
-  const $ = (id) => document.getElementById(id);
-  const status = (t) => $('arSt').textContent = t;
-  const refreshBuf = () => $('arBf').textContent = '📖 ' + buffer.length + ' páginas';
+  const toggle = document.createElement('button');
+  toggle.id = 'arToggle';
+  toggle.type = 'button';
+  toggle.setAttribute('aria-label', 'Abrir ou minimizar LEIA-ME IA');
+  toggle.innerHTML = `<img src="${ICONE}" alt="">`;
+  toggle.classList.add('arAura');
+  document.body.appendChild(toggle);
 
-  // ---------- Chave ----------
-  $('arKey').value = CHAVE;
-  $('arKey').addEventListener('focus', (e) => e.target.select());
-  $('arSave').onclick = () => {
-    CHAVE = $('arKey').value.trim();
-    localStorage.setItem('__arKey', CHAVE);
-    status(CHAVE ? '🔑 Chave salva' : '⚠️ Chave vazia');
-  };
-  $('arKey').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') $('arSave').click();
-  });
+  const notifyBox = document.createElement('div');
+  notifyBox.id = 'arNotify';
+  document.body.appendChild(notifyBox);
 
-  // ---------- Arrastar ----------
-  let dx = 0, dy = 0, down = false;
-  box.addEventListener('mousedown', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-    down = true;
-    dx = e.clientX - box.offsetLeft;
-    dy = e.clientY - box.offsetTop;
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!down) return;
-    box.style.left = (e.clientX - dx) + 'px';
-    box.style.top = (e.clientY - dy) + 'px';
-    box.style.right = 'auto';
-  });
-  document.addEventListener('mouseup', () => down = false);
+  // ---------- Notify ----------
+  function notify(msg, ms = 2300) {
+    notifyBox.textContent = msg;
+    notifyBox.style.opacity = '1';
+    notifyBox.style.transform = 'translateX(-50%) translateY(0)';
+    clearTimeout(notifyTimer);
+    notifyTimer = setTimeout(() => {
+      notifyBox.style.opacity = '0';
+      notifyBox.style.transform = 'translateX(-50%) translateY(-20px)';
+    }, ms);
+  }
 
-  $('arX').onclick = () => {
-    autoAnswer = autoNextPage = timerBypass = false;
-    [timerPage, timerAnswer, bypassInterval].forEach(t => t && clearInterval(t));
-    box.remove();
-    window.__arInit = false;
+  const status = t => { $('arStatus').textContent = t; };
+  const refreshBuf = () => $('arBuf').textContent = '📖 ' + buffer.length + ' páginas';
+
+  // ---------- API Key ----------
+  $('arEditApi').onclick = e => {
+    e.stopPropagation();
+    const v = prompt('Cole sua chave da OpenRouter (sk-or-v1-...):', apiKey);
+    if (v && v.trim()) {
+      apiKey = v.trim();
+      localStorage.setItem('__arKey', apiKey);
+      notify('API Key salva.');
+    }
   };
 
   // ---------- Toggles ----------
-  function sw(id, cb) {
-    const el = $(id);
-    el.onclick = () => { el.classList.toggle('on'); cb(el.classList.contains('on')); };
+  function bindToggle(rowId, inputId, onChange) {
+    const row = $(rowId), inp = $(inputId);
+    row.addEventListener('click', e => {
+      if (e.target !== inp) inp.checked = !inp.checked;
+      row.classList.toggle('arOn', inp.checked);
+      onChange(inp.checked);
+    });
   }
-  sw('sA', v => { autoAnswer = v; status('Auto Answer: ' + (v ? 'ON' : 'OFF')); });
-  sw('sP', v => { autoNextPage = v; status('Auto Next Page: ' + (v ? 'ON' : 'OFF')); });
-  sw('sT', v => {
+  bindToggle('arRowA', 'arAutoAnswer', v => { autoAnswer = v; status('Auto Answer: ' + (v ? 'ON' : 'OFF')); });
+  bindToggle('arRowP', 'arAutoPage',   v => { autoNextPage = v; status('Auto Next Page: ' + (v ? 'ON' : 'OFF')); });
+  bindToggle('arRowT', 'arTimerBypass', v => {
     timerBypass = v;
     if (v) { iniciarBypass(); status('Timer Bypass: ON'); }
     else { if (bypassInterval) { clearInterval(bypassInterval); bypassInterval = null; } status('Timer Bypass: OFF'); }
   });
-  $('arT').onchange = (e) => tempoPag = parseInt(e.target.value) || 1800;
 
-  $('arGo').onclick = () => {
-    if (!CHAVE) { status('⚠️ Cole a chave'); $('arKey').focus(); return; }
-    status('▶ Rodando');
+  $('arTempo').onchange = e => tempoPag = parseInt(e.target.value) || 1800;
+
+  // ---------- Botão Iniciar/Pausar ----------
+  const btnGo = $('arGo');
+
+  function atualizarBotao() {
+    if (!rodando) {
+      btnGo.textContent = '▶ INICIAR';
+      btnGo.classList.remove('arRunning', 'arPaused');
+    } else {
+      btnGo.textContent = '⏸ PAUSAR';
+      btnGo.classList.remove('arPaused');
+      btnGo.classList.add('arRunning');
+    }
+    // Se estiver pausado (toggles ligados mas rodando = false e já iniciou antes)
+    if (!rodando && (timerPage || timerAnswer || bypassInterval)) {
+      btnGo.textContent = '▶ RETOMAR';
+      btnGo.classList.add('arPaused');
+      btnGo.classList.remove('arRunning');
+    }
+  }
+
+  function pausarTudo() {
+    if (timerAnswer) { clearInterval(timerAnswer); timerAnswer = null; }
+    if (timerPage) { clearInterval(timerPage); timerPage = null; }
+    if (bypassInterval) { clearInterval(bypassInterval); bypassInterval = null; }
+    rodando = false;
+    atualizarBotao();
+  }
+
+  function iniciarTudo() {
+    if (!apiKey) { notify('⚠️ Configure a API primeiro'); return; }
+    rodando = true;
     if (autoAnswer && !timerAnswer) timerAnswer = setInterval(loopAnswer, 2000);
     if (autoNextPage && !timerPage) timerPage = setInterval(loopPage, 2000);
     if (timerBypass && !bypassInterval) iniciarBypass();
+    atualizarBotao();
+  }
+
+  btnGo.onclick = () => {
+    if (rodando) {
+      pausarTudo();
+      status('⏸ Pausado');
+      notify('Pausado.');
+    } else {
+      iniciarTudo();
+      status('▶ Rodando');
+      notify('Rodando.');
+    }
   };
 
-  // ================= Helpers =================
+  // ---------- Helpers ----------
   const naTela = (el) => {
     if (!el) return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
-  const esperar = (ms) => new Promise(r => setTimeout(r, ms));
   const temPergunta = () => !!document.querySelector('.question-quiz-text.ng-binding');
 
-  // ================= Leitura =================
+  // ---------- Leitura ----------
   function lerPagina() {
     if (temPergunta()) return null;
     const c = document.body.cloneNode(true);
-    c.querySelectorAll('button,input,select,md-icon,svg,md-dialog,md-backdrop,#arBox,' +
+    c.querySelectorAll('button,input,select,md-icon,svg,md-dialog,md-backdrop,#arFloat,#arToggle,#arNotify,' +
       '[class*="controls"],[class*="toolbar"],[class*="overlay"],[class*="header"],' +
       '[class*="footer"],[class*="sidebar"],[class*="tts"]').forEach(e => e.remove());
     return (c.innerText || '').split('\n').map(s => s.trim()).filter(Boolean)
@@ -167,7 +245,7 @@
     refreshBuf();
   }
 
-  // ================= OpenRouter =================
+  // ---------- OpenRouter ----------
   async function chamarIA(pergunta, opcoes) {
     const ctx = buffer.length ? 'Contexto:\n"""\n' + buffer.join('\n---\n') + '\n"""\n\n' : '';
     const prompt = `${ctx}Pergunta: ${pergunta}\n\nOpções:\n${opcoes.map((o, i) =>
@@ -175,7 +253,7 @@
 
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + CHAVE, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: MODELO, temperature: 0,
         messages: [
@@ -190,7 +268,7 @@
     return txt.match(/[A-E]/i)?.[0]?.toUpperCase() || null;
   }
 
-  // ================= Quiz =================
+  // ---------- Quiz ----------
   function marcar(letra) {
     const i = { A: 0, B: 1, C: 2, D: 3, E: 4 }[letra];
     if (i === undefined) return false;
@@ -202,7 +280,7 @@
   }
 
   function clicarQuiz() {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const tentar = () => {
         const c = document.querySelector('md-dialog-actions.quiz-dialog-buttons');
         if (!c) return false;
@@ -243,7 +321,7 @@
     setTimeout(() => obs.disconnect(), 5000);
   }
 
-  // ================= Timer Bypass =================
+  // ---------- Timer Bypass ----------
   function acharTimers() {
     const els = [];
     const sels = ['[id*="timer"]','[class*="timer"]','[id*="time"]','[class*="time"]',
@@ -261,19 +339,12 @@
     });
     return els;
   }
-
-  function paraSeg(s) {
+  const paraSeg = s => {
     const p = s.split(':');
-    if (p.length === 2) return parseInt(p[0]) * 60 + parseInt(p[1]);
-    if (p.length === 3) return parseInt(p[0]) * 3600 + parseInt(p[1]) * 60 + parseInt(p[2]);
-    return 0;
-  }
-
-  function formataSeg(s) {
-    const m = Math.floor(s / 60);
-    const ss = s % 60;
-    return m + ':' + String(ss).padStart(2, '0');
-  }
+    return p.length === 2 ? +p[0] * 60 + +p[1]
+         : p.length === 3 ? +p[0] * 3600 + +p[1] * 60 + +p[2] : 0;
+  };
+  const format = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 
   function iniciarBypass() {
     if (!timerBypass) return;
@@ -281,24 +352,20 @@
     if (!els.length) { status('⚠️ Sem timer visível'); return; }
     tempoOriginal = paraSeg(els[0].textContent.trim());
     inicioBypass = Date.now();
-    console.log('[Bypass] Timer detectado:', tempoOriginal, 's');
-
     if (bypassInterval) clearInterval(bypassInterval);
     bypassInterval = setInterval(() => {
-      if (!timerBypass) return;
+      if (!timerBypass || !rodando) return;
       const real = Math.floor((Date.now() - inicioBypass) / 1000);
       const novo = Math.max(0, tempoOriginal - real);
-      acharTimers().forEach(el => { el.textContent = formataSeg(novo); });
-      try {
-        document.dispatchEvent(new Event('mousemove', { bubbles: false }));
-      } catch (e) {}
+      acharTimers().forEach(el => { el.textContent = format(novo); });
+      try { document.dispatchEvent(new Event('mousemove', { bubbles: false })); } catch (e) {}
       if (novo <= 0) { clearInterval(bypassInterval); bypassInterval = null; }
     }, 1000);
   }
 
-  // ================= Loops =================
+  // ---------- Loops ----------
   async function loopAnswer() {
-    if (!autoAnswer || processando || !temPergunta()) return;
+    if (!rodando || !autoAnswer || processando || !temPergunta()) return;
     processando = true;
     try {
       const pEl = document.querySelector('.question-quiz-text.ng-binding');
@@ -309,24 +376,26 @@
 
       status('🤔 Pensando...');
       const letra = await chamarIA(pergunta, opcoes);
-      if (!letra) { status('❌ IA falhou'); return; }
+      if (!letra) { status('❌ IA falhou'); toggle.classList.add('arErr'); return; }
 
       status('✅ ' + letra);
       if (marcar(letra)) {
-        await esperar(1000);
+        await wait(1000);
         await clicarQuiz();
-        await esperar(2000);
+        await wait(2000);
       }
     } catch (e) {
       console.error(e);
       status('❌ ' + e.message);
+      toggle.classList.add('arErr');
     } finally {
       processando = false;
+      setTimeout(() => toggle.classList.remove('arErr'), 2600);
     }
   }
 
   function loopPage() {
-    if (!autoNextPage) return;
+    if (!rodando || !autoNextPage) return;
     if (!temPergunta()) capturar();
     if (temPergunta()) return;
     try {
@@ -340,7 +409,77 @@
     } catch (e) {}
   }
 
+  // ---------- Ícone: arrastar/minimizar ----------
+  function setMinimized(v) {
+    minimized = v;
+    gui.classList.toggle('arMini', v);
+  }
+
+  let iconDrag = null, iconMoved = false;
+  toggle.addEventListener('pointerdown', e => {
+    if (e.button !== undefined && e.button !== 0) return;
+    const rect = toggle.getBoundingClientRect();
+    iconDrag = { id: e.pointerId, startX: e.clientX, startY: e.clientY,
+      offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+    iconMoved = false;
+    toggle.classList.add('arPressed');
+    try { toggle.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+  });
+  toggle.addEventListener('pointermove', e => {
+    if (!iconDrag || e.pointerId !== iconDrag.id) return;
+    const dx = e.clientX - iconDrag.startX;
+    const dy = e.clientY - iconDrag.startY;
+    if (Math.abs(dx) > 7 || Math.abs(dy) > 7) iconMoved = true;
+    if (!iconMoved) return;
+    const x = Math.max(0, Math.min(innerWidth - toggle.offsetWidth, e.clientX - iconDrag.offsetX));
+    const y = Math.max(0, Math.min(innerHeight - toggle.offsetHeight, e.clientY - iconDrag.offsetY));
+    toggle.style.left = x + 'px';
+    toggle.style.top = y + 'px';
+    toggle.style.right = 'auto';
+    toggle.style.bottom = 'auto';
+  });
+  toggle.addEventListener('pointerup', e => {
+    if (!iconDrag || e.pointerId !== iconDrag.id) return;
+    const wasMoved = iconMoved;
+    iconDrag = null; iconMoved = false;
+    toggle.classList.remove('arPressed');
+    if (!wasMoved) setMinimized(!minimized);
+  });
+  toggle.addEventListener('pointercancel', () => {
+    iconDrag = null; iconMoved = false; toggle.classList.remove('arPressed');
+  });
+  toggle.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
+
+  // ---------- Arrastar painel ----------
+  let panelDrag = null;
+  $('arDragHandle').addEventListener('pointerdown', e => {
+    const rect = gui.getBoundingClientRect();
+    panelDrag = { id: e.pointerId,
+      offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+    try { $('arDragHandle').setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault(); e.stopPropagation();
+  });
+  $('arDragHandle').addEventListener('pointermove', e => {
+    if (!panelDrag || e.pointerId !== panelDrag.id) return;
+    const x = Math.max(0, Math.min(innerWidth - gui.offsetWidth, e.clientX - panelDrag.offsetX));
+    const y = Math.max(0, Math.min(innerHeight - gui.offsetHeight, e.clientY - panelDrag.offsetY));
+    gui.style.left = x + 'px';
+    gui.style.top = y + 'px';
+    gui.style.right = 'auto';
+    gui.style.bottom = 'auto';
+  });
+  const finishPanel = e => { if (panelDrag && e.pointerId === panelDrag.id) panelDrag = null; };
+  $('arDragHandle').addEventListener('pointerup', finishPanel);
+  $('arDragHandle').addEventListener('pointercancel', finishPanel);
+
+  // ---------- Atalho ESC ----------
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') setMinimized(!minimized);
+  });
+
   status('Pronto');
   refreshBuf();
-  console.log('[Auto Leitor] Completo. Pronto.');
-})(); 
+  notify('LEIA-ME IA carregada!');
+  console.log('[LEIA-ME IA] Pronto.');
+})();
