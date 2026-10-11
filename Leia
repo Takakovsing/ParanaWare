@@ -247,4 +247,4 @@
     const els = acharTimers();
     if (!els.length) { status('⚠️ Sem timer na tela'); return; }
     tempoOriginal = paraSeg(els[0].textContent.trim());
-    inicioBypass = Date.now 
+    inicioBypass = Date.now
