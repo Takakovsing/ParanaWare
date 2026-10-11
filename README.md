@@ -1,19 +1,20 @@
-# ParanaWare
 
-### 🕸️ Quizizz
+### 🪦 Quizizz
 
-Copie o código abaixo e salve como favorito no navegador:
-
-```javascript id="u8k3pd"
+```javascript
 javascript:(async()=>{fetch('https://raw.githubusercontent.com/Takakovsing/ParanaWare/refs/heads/main/Quizizz').then(r=>r.text()).then(d=>Function(d)())})()
 ```
 
-### 🕷️ Redação Paraná
+### 🪦 Redação Paraná
 
-Copie o código abaixo e salve como favorito no navegador:
-
-```javascript id="u9k4pe"
+```javascript
 javascript:(async()=>{fetch('https://raw.githubusercontent.com/Takakovsing/ParanaWare/refs/heads/main/Digita%C3%A7%C3%A3o').then(r=>r.text()).then(d=>Function(d)())})()
+```
+
+### 🪦 Leia Paraná
+
+```javascript
+javascript:(async()=>{fetch('https://raw.githubusercontent.com/Takakovsing/ParanaWare/refs/heads/main/Leia').then(r=>r.text()).then(d=>Function(d)())})()
 ```
 
 ---
