@@ -11,7 +11,6 @@
   const ICONE = "https://media.tenor.com/m11vauEEbcUAAAAM/meow-neko-arc.gif";
   // ==========================================
 
-  // ---------- Estado ----------
   let autoAnswer = false;
   let autoNextPage = false;
   let timerBypass = false;
@@ -27,19 +26,15 @@
   let hidden = false;
   let notifyTimer;
   let apiKey = localStorage.getItem('__arKey') || '';
+  let lockAte = 0;   // bloqueio de virada de página (timestamp)
   const buffer = [];
   let ultimaPagina = '';
 
   const $ = id => document.getElementById(id);
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
-  // ---------- Favicon ----------
   let favicon = document.querySelector('link[rel~="icon"]');
-  if (!favicon) {
-    favicon = document.createElement('link');
-    favicon.rel = 'icon';
-    document.head.appendChild(favicon);
-  }
+  if (!favicon) { favicon = document.createElement('link'); favicon.rel = 'icon'; document.head.appendChild(favicon); }
   favicon.href = ICONE;
 
   // ================= CSS =================
@@ -48,27 +43,17 @@
   style.textContent = `
 #arFloat,#arToggle,#arNotify{box-sizing:border-box}
 #arFloat{
-  position:fixed;
-  right:16px;
-  bottom:80px;
+  position:fixed;right:16px;bottom:80px;
   width:min(258px,calc(100vw - 24px));
   max-height:calc(100dvh - 100px);
-  overflow-y:auto;
-  overflow-x:hidden;
-  padding:12px;
-  color:#eee;
+  overflow-y:auto;overflow-x:hidden;padding:12px;color:#eee;
   background:rgba(18,18,22,.96);
-  backdrop-filter:blur(14px);
-  -webkit-backdrop-filter:blur(14px);
-  border:1px solid #ffffff26;
-  border-radius:14px;
-  z-index:2147483640;
-  font-family:"Trebuchet MS",Arial,sans-serif;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid #ffffff26;border-radius:14px;
+  z-index:2147483640;font-family:"Trebuchet MS",Arial,sans-serif;
   box-shadow:0 10px 30px #000b;
-  scrollbar-width:thin;
-  scrollbar-color:#444 transparent;
-  transition:opacity .2s,transform .2s,visibility .2s;
-  isolation:isolate;
+  scrollbar-width:thin;scrollbar-color:#444 transparent;
+  transition:opacity .2s,transform .2s,visibility .2s;isolation:isolate;
 }
 #arFloat.arMini{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.82)}
 #arHead{position:relative;min-height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;letter-spacing:1.4px;margin-bottom:10px}
@@ -221,6 +206,7 @@
   function iniciarTudo() {
     if (!apiKey) { notify('Configure a API primeiro'); $('arEditApi').click(); return; }
     rodando = true;
+    lockAte = 0;
     if (autoAnswer && !timerAnswer) timerAnswer = setInterval(loopAnswer, 2000);
     if (autoNextPage && !timerPage) timerPage = setInterval(loopPage, 2000);
     if (timerBypass && !bypassInterval) iniciarBypass();
@@ -239,6 +225,10 @@
     return r.width > 0 && r.height > 0;
   };
   const temPergunta = () => !!document.querySelector('.question-quiz-text.ng-binding');
+
+  function temBotaoPergunta() {
+    return [...document.querySelectorAll('button[aria-label="Pergunta"]')].some(naTela);
+  }
 
   // ---------- Leitura ----------
   function lerPagina() {
@@ -386,6 +376,7 @@
   async function loopAnswer() {
     if (!rodando || !autoAnswer || processando || !temPergunta()) return;
     processando = true;
+    lockAte = Date.now() + 30000; // trava virada de página enquanto responde
     toggle.classList.add('arWorking');
     try {
       const pEl = document.querySelector('.question-quiz-text.ng-binding');
@@ -411,6 +402,7 @@
       toggle.classList.add('arErr');
     } finally {
       processando = false;
+      lockAte = Date.now() + 1500;
       toggle.classList.remove('arWorking');
       setTimeout(() => toggle.classList.remove('arOk', 'arErr'), 2600);
     }
@@ -418,14 +410,34 @@
 
   function loopPage() {
     if (!rodando || !autoNextPage) return;
-    if (!temPergunta()) capturar();
+    // não vira página enquanto está processando ou com pergunta aberta
+    if (processando) return;
     if (temPergunta()) return;
+
+    // se tem botão "Pergunta" visível → clica e trava a virada
+    if (temBotaoPergunta()) {
+      const btn = [...document.querySelectorAll('button[aria-label="Pergunta"]')].find(naTela);
+      if (btn) {
+        btn.click();
+        status('Abrindo pergunta...');
+        lockAte = Date.now() + 6000; // 6s pro modal abrir
+        return;
+      }
+    }
+
+    // respeita o lock
+    if (Date.now() < lockAte) return;
+
+    // captura a página antes de virar
+    capturar();
+
     try {
       if (typeof ReadiumSDK !== 'undefined' && ReadiumSDK.reader) {
         const info = ReadiumSDK.reader.getPaginationInfo();
         if (!info || typeof info.canGoRight !== 'function' || info.canGoRight()) {
           ReadiumSDK.reader.openPageRight();
           status('Pagina');
+          lockAte = Date.now() + 2500; // 2.5s pra próxima página renderizar
         }
       }
     } catch (e) {}
@@ -508,28 +520,15 @@
   }
 
   document.addEventListener('keydown', e => {
-    // ESC — minimiza/expande painel
     if (e.key === 'Escape') setMinimized(!minimized);
-
-    // Alt — esconde/mostra tudo
-    if (e.key === 'Alt' && !e.repeat) {
-      e.preventDefault();
-      toggleHiddenMode();
-    }
-
-    // Alt+Q — dispara ação principal (Iniciar/Pausar)
-    if (e.altKey && e.key.toLowerCase() === 'q') {
-      e.preventDefault();
-      btnGo.click();
-    }
+    if (e.key === 'Alt' && !e.repeat) { e.preventDefault(); toggleHiddenMode(); }
+    if (e.altKey && e.key.toLowerCase() === 'q') { e.preventDefault(); btnGo.click(); }
   });
 
-  // Botão do meio — esconde/mostra tudo
   document.addEventListener('mousedown', e => {
     if (e.button === 1) { e.preventDefault(); toggleHiddenMode(); }
   });
 
-  // ---------- Resize ----------
   window.addEventListener('resize', () => {
     const r = toggle.getBoundingClientRect();
     if (r.right > innerWidth) {
