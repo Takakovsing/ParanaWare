@@ -62,4 +62,4 @@ async function perguntarIA(pergunta, opcoes) {
     }
 
     throw new Error(`Todos os modelos falharam. Último erro: ${ultimoErro}`);
-}
+} 
