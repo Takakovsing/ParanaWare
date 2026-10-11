@@ -1,120 +1,296 @@
-const painel = document.createElement("div");
-painel.id = "__autoIA_painel";
+javascript:(async function(){
+    if(window.__autoIA){
+        window.__autoIA.parar();
+        return;
+    }
 
-painel.style.cssText = `
-    position:fixed;
-    right:20px;
-    bottom:20px;
-    width:280px;
-    z-index:2147483647;
-    padding:15px;
-    box-sizing:border-box;
-    background:rgba(20,20,20,.96);
-    color:#fff;
-    border:1px solid rgba(255,255,255,.12);
-    border-radius:12px;
-    box-shadow:0 8px 30px rgba(0,0,0,.5);
-    font-family:Arial,sans-serif;
-    font-size:12px;
-    backdrop-filter:blur(12px);
-    user-select:none;
-`;
+    const INTERVALO = 5;
+    const MAX_PAGINAS = 40;
+    const MAX_TEXTO = 12000;
 
-painel.innerHTML = `
-<style>
-#__autoIA_painel button {
-    cursor:pointer;
-    transition:filter .2s, transform .2s;
-}
-#__autoIA_painel button:hover {
-    filter:brightness(1.15);
-}
-#__autoIA_painel button:active {
-    transform:scale(.97);
-}
-@keyframes pulsoOriginal {
-    0%,100% {opacity:1;transform:scale(1)}
-    50% {opacity:.35;transform:scale(.8)}
-}
-@keyframes luzOriginal {
-    0% {box-shadow:0 0 4px #4caf50}
-    50% {box-shadow:0 0 12px #4caf50}
-    100% {box-shadow:0 0 4px #4caf50}
-}
-</style>
+    let apiKey = localStorage.getItem("__or_key") || "";
+    if(!apiKey){
+        apiKey = prompt("Digite sua chave da OpenRouter:");
+        if(!apiKey) return;
+        localStorage.setItem("__or_key", apiKey);
+    }
 
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-    <span id="__dot" style="
-        width:9px;height:9px;flex-shrink:0;
+    let ativo = true;
+    let paginas = [];
+    let ultimoTexto = "";
+    let contador = INTERVALO;
+    let totalPaginas = 0;
+    let timer = null;
+
+    const sleep = ms => new Promise(resolve => {
+        timer = setTimeout(resolve, ms);
+    });
+
+    const painel = document.createElement("div");
+    painel.id = "__autoIA_painel";
+    painel.style.cssText = `
+        position:fixed;right:20px;bottom:20px;width:280px;
+        max-width:calc(100vw - 30px);z-index:2147483647;
+        padding:15px;box-sizing:border-box;
+        background:rgba(20,20,20,.97);color:#fff;
+        border:1px solid #353535;border-radius:12px;
+        box-shadow:0 8px 30px #0009;
+        font:12px/1.5 Arial,sans-serif;
+        backdrop-filter:blur(12px);user-select:none;
+    `;
+
+    painel.innerHTML = `
+    <style>
+    #__autoIA_painel button{cursor:pointer;transition:.2s}
+    #__autoIA_painel button:hover{filter:brightness(1.2)}
+    #__autoIA_painel button:active{transform:scale(.97)}
+    @keyframes __pulse{
+        0%,100%{opacity:1;transform:scale(1)}
+        50%{opacity:.35;transform:scale(.8)}
+    }
+    @keyframes __glow{
+        0%,100%{box-shadow:0 0 3px #4caf50}
+        50%{box-shadow:0 0 12px #4caf50}
+    }
+    </style>
+
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span id="__dot" style="width:9px;height:9px;flex-shrink:0;
         background:#4caf50;border-radius:50%;
-        animation:pulsoOriginal 1.2s infinite,luzOriginal 2s infinite">
-    </span>
-    <strong id="__titulo" style="font-size:14px;letter-spacing:.3px">
-        📖 Folheando
-    </strong>
-    <span style="margin-left:auto;font-size:9px;color:#777;letter-spacing:1px">
-        PORTUGA
-    </span>
-</div>
-
-<div id="__contador" style="
-    font-size:43px;font-weight:800;text-align:center;
-    line-height:1.2;margin:10px 0 8px;color:#4caf50">
-    5
-</div>
-
-<div style="height:3px;background:#303030;border-radius:5px;overflow:hidden;margin-bottom:12px">
-    <div id="__barra" style="
-        height:100%;width:100%;background:#4caf50;
-        transition:width .3s linear">
+        animation:__pulse 1.2s infinite,__glow 2s infinite"></span>
+        <strong id="__titulo" style="font-size:14px">📖 Folheando</strong>
+        <span style="margin-left:auto;color:#777;font-size:9px;letter-spacing:1px">
+        PORTUGA</span>
     </div>
-</div>
 
-<div id="__mensagem" style="
-    min-height:32px;max-height:100px;overflow:auto;
-    color:#aaa;font-size:11px;line-height:1.5;
-    overflow-wrap:anywhere;margin-bottom:12px">
-    Iniciando leitura...
-</div>
+    <div id="__contador" style="font-size:43px;font-weight:800;
+    text-align:center;line-height:1.2;margin:10px 0;color:#4caf50">5</div>
 
-<div style="
-    padding:9px 10px;background:rgba(255,255,255,.035);
+    <div style="height:3px;background:#303030;border-radius:5px;
+    overflow:hidden;margin-bottom:12px">
+        <div id="__barra" style="height:100%;width:100%;
+        background:#4caf50;transition:width .3s"></div>
+    </div>
+
+    <div id="__mensagem" style="min-height:32px;max-height:130px;
+    overflow:auto;overflow-wrap:anywhere;color:#aaa;
+    font-size:11px;margin-bottom:12px">
+        Iniciando leitura...
+    </div>
+
+    <div style="padding:9px 10px;background:#181818;
     border:1px solid #292929;border-radius:7px;
     line-height:2;margin-bottom:12px">
-    <div style="display:flex;justify-content:space-between">
-        <span style="color:#aaa">📄 Páginas</span>
-        <b id="__total">0</b>
+        <div style="display:flex;justify-content:space-between">
+            <span style="color:#aaa">📄 Páginas</span>
+            <b id="__total">0</b>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+            <span style="color:#aaa">🧠 Memória</span>
+            <b id="__mem" style="color:#4caf50">0 caracteres</b>
+        </div>
     </div>
-    <div style="display:flex;justify-content:space-between">
-        <span style="color:#aaa">🧠 Memória</span>
-        <b id="__mem" style="color:#4caf50">0 caracteres</b>
+
+    <div style="display:flex;gap:7px;margin-bottom:7px">
+        <button id="__btnRepetir" style="flex:1;background:#252525;color:white;
+        border:1px solid #3a3a3a;border-radius:6px;padding:10px 5px;
+        font-size:11px;font-weight:bold">🔄 DE NOVO</button>
+        <button id="__btnKey" style="width:43px;background:#252525;color:white;
+        border:1px solid #3a3a3a;border-radius:6px;font-size:15px">🔑</button>
     </div>
-</div>
 
-<div style="display:flex;gap:7px;margin-bottom:7px">
-    <button id="__btnRepetir" style="
-        flex:1;background:#252525;color:#fff;
-        border:1px solid #3a3a3a;border-radius:6px;
-        padding:10px 5px;font-size:11px;font-weight:bold">
-        🔄 DE NOVO
-    </button>
+    <button id="__btnParar" style="width:100%;background:#292020;
+    color:#ff6464;border:1px solid #583030;border-radius:6px;
+    padding:10px;font-size:11px;font-weight:bold">⏹ PARAR</button>
+    `;
 
-    <button id="__btnKey" style="
-        width:43px;background:#252525;color:#fff;
-        border:1px solid #3a3a3a;border-radius:6px;
-        font-size:15px">
-        🔑
-    </button>
-</div>
+    document.body.appendChild(painel);
+    const $ = id => painel.querySelector("#__" + id);
 
-<button id="__btnParar" style="
-    width:100%;background:#292020;color:#ff6464;
-    border:1px solid #583030;border-radius:6px;
-    padding:10px;font-size:11px;font-weight:bold">
-    ⏹ PARAR
-</button>
-`;
+    function status(texto){
+        if(ativo) $("mensagem").textContent = texto;
+    }
 
-document.body.appendChild(painel);
+    function modo(titulo, cor){
+        $("titulo").textContent = titulo;
+        $("dot").style.background = cor;
+        $("contador").style.color = cor;
+        $("barra").style.background = cor;
+    }
 
-const $ = id => painel.querySelector("#__" + id);
+    function capturarTexto(){
+        const clone = document.body.cloneNode(true);
+        clone.querySelectorAll(
+            "#__autoIA_painel,script,style,nav,header,footer"
+        ).forEach(el => el.remove());
+
+        return (clone.innerText || "")
+            .split("\n")
+            .map(l => l.trim())
+            .filter(l => l.length > 2)
+            .join("\n")
+            .slice(0, 20000);
+    }
+
+    function guardarPagina(){
+        const texto = capturarTexto();
+        if(!texto || texto.length < 30 || texto === ultimoTexto) return;
+
+        ultimoTexto = texto;
+        paginas.push(texto);
+
+        if(paginas.length > MAX_PAGINAS) paginas.shift();
+
+        totalPaginas++;
+        $("total").textContent = totalPaginas;
+
+        const total = paginas.reduce((s,p) => s + p.length, 0);
+        $("mem").textContent = total.toLocaleString("pt-BR") + " caracteres";
+    }
+
+    function contexto(){
+        return paginas.join("\n\n--- Página ---\n\n").slice(-MAX_TEXTO);
+    }
+
+    function avancarPagina(){
+        const seletores = [
+            "#right-page-btn",
+            ".page-switch-overlay-icon.next",
+            ".page-switch-overlay-icon.embedded.next",
+            '[aria-label="Next page"]',
+            '[aria-label="Próxima página"]'
+        ];
+
+        for(const seletor of seletores){
+            const el = document.querySelector(seletor);
+            if(!el || el.disabled) continue;
+
+            const estilo = getComputedStyle(el);
+            if(estilo.display === "none" ||
+               estilo.visibility === "hidden" ||
+               !el.getClientRects().length) continue;
+
+            el.click();
+            return true;
+        }
+
+        status("Botão de próxima página não encontrado.");
+        return false;
+    }
+
+    async function consultarIA(pergunta){
+        const response = await fetch(
+            "https://openrouter.ai/api/v1/chat/completions",
+            {
+                method:"POST",
+                headers:{
+                    "Authorization":"Bearer " + apiKey,
+                    "Content-Type":"application/json",
+                    "HTTP-Referer":location.origin,
+                    "X-Title":"Portuga Leitor"
+                },
+                body:JSON.stringify({
+                    model:"openrouter/free",
+                    messages:[
+                        {
+                            role:"system",
+                            content:"Você é um tutor educacional. Use o texto de apoio, explique com clareza e não invente informações."
+                        },
+                        {
+                            role:"user",
+                            content:"Texto de apoio:\n" + contexto() +
+                                "\n\nPergunta:\n" + pergunta +
+                                "\n\nExplique a resposta e o raciocínio."
+                        }
+                    ],
+                    temperature:0.3,
+                    max_tokens:800
+                })
+            }
+        );
+
+        if(!response.ok){
+            throw new Error("Erro da API: HTTP " + response.status);
+        }
+
+        const data = await response.json();
+        const resposta = data.choices?.[0]?.message?.content;
+
+        if(!resposta) throw new Error("A IA não retornou uma resposta.");
+        return resposta;
+    }
+
+    async function repetir(){
+        const pergunta = prompt("Digite a pergunta que deseja estudar:");
+        if(!pergunta || !ativo) return;
+
+        modo("🧠 Consultando IA...", "#2196f3");
+        status("Consultando o OpenRouter...");
+
+        try{
+            const resposta = await consultarIA(pergunta);
+            if(!ativo) return;
+            status(resposta);
+        }catch(e){
+            status("Falha: " + e.message);
+        }finally{
+            if(ativo) modo("📖 Folheando", "#4caf50");
+        }
+    }
+
+    function parar(){
+        ativo = false;
+        clearTimeout(timer);
+        window.__autoIA = null;
+        painel.remove();
+    }
+
+    $("btnRepetir").addEventListener("click", repetir);
+
+    $("btnKey").addEventListener("click", () => {
+        const nova = prompt("Nova chave OpenRouter:", apiKey);
+        if(nova && nova.trim()){
+            apiKey = nova.trim();
+            localStorage.setItem("__or_key", apiKey);
+            status("Chave atualizada.");
+        }
+    });
+
+    $("btnParar").addEventListener("click", parar);
+
+    window.__autoIA = {parar};
+
+    while(ativo){
+        guardarPagina();
+
+        contador = INTERVALO;
+        while(ativo && contador > 0){
+            $("contador").textContent = contador;
+            $("barra").style.width =
+                (contador / INTERVALO * 100) + "%";
+
+            await sleep(1000);
+            if(!ativo) break;
+            contador--;
+        }
+
+        if(!ativo) break;
+
+        guardarPagina();
+        const antes = capturarTexto();
+
+        avancarPagina();
+        await sleep(1200);
+
+        if(!ativo) break;
+
+        const depois = capturarTexto();
+
+        if(depois !== antes){
+            guardarPagina();
+            status("Página lida e guardada na memória.");
+        }else{
+            status("Aguardando a próxima página...");
+        }
+    }
+})();
