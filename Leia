@@ -4,28 +4,16 @@
     // ===================== CONFIG =====================
     const SEGUNDOS_PAGINA        = 5;
     const RODADAS_VOTACAO        = 3;
-    const TENTATIVAS_POR_MODELO  = 2;
+    const TENTATIVAS              = 4;
     const DELAY_ANTES_CLIQUE     = 400;
-    const DELAY_VERIFICACAO      = 1500;   // ← espera 1,5s antes de confirmar
+    const DELAY_VERIFICACAO      = 1500;
     const DELAY_POS_TERMINAR     = 1200;
     const TIMEOUT_QUESTAO        = 60000;
     const ESPERA_POS_Q           = 2500;
     const AUTOSUBMIT             = true;
-    const ENVIAR_SEMPRE          = true;
     const VERIFICAR_ANTES_ENVIAR = true;
     const MAX_CHARS_CONTEXTO     = 12000;
     const MAX_PAGINAS_GUARDADAS  = 40;
-
-    const MODELOS = [
-        'openrouter/free',
-        'meta-llama/llama-3.3-70b-instruct:free',
-        'google/gemini-2.0-flash-exp:free',
-        'qwen/qwen-2.5-72b-instruct:free',
-        'mistralai/mistral-nemo:free',
-        'microsoft/phi-3-medium-128k-instruct:free',
-        'openchat/openchat-7b:free',
-        'huggingfaceh4/zephyr-7b-beta:free'
-    ];
 
     // ===================== API KEY =====================
     let API_KEY = localStorage.getItem('__or_key');
@@ -252,53 +240,45 @@
     // ===================== CLIQUE + VERIFICAÇÃO =====================
     async function clicarRadio(textoOpcao, container) {
         const radio = encontrarRadioPorTexto(textoOpcao, container);
-        if (!radio) { log('❌ Radio não achado'); return null; }
+        if (!radio) { log('❌ Radio não achado'); return { ok: false }; }
 
         const textoRadio = (radio.innerText || '').trim().replace(/\s+/g, ' ');
         log(`🎯 Alvo: "${textoRadio.slice(0, 50)}..."`);
 
-        // Destaca visualmente
         const outlineOrig = radio.style.outline;
         const bgOrig = radio.style.background;
         radio.style.outline = '3px solid #ffeb3b';
         radio.style.background = 'rgba(255,235,59,.25)';
         await sleep(400);
 
-        // Clique simples (que já testamos e funciona)
         try { radio.click(); } catch(_) {}
 
-        // ============ ESPERA 1,5s E CONFIRMA ============
-        log(`⏳ Aguardando ${DELAY_VERIFICACAO}ms pra confirmar...`);
+        log(`⏳ Aguardando ${DELAY_VERIFICACAO}ms...`);
         await sleep(DELAY_VERIFICACAO);
 
-        // Restaura o destaque
         radio.style.outline = outlineOrig;
         radio.style.background = bgOrig;
 
-        // Lê o que ficou marcado
         const marcados = qualEstaMarcado(container);
         if (marcados.length === 0) {
-            log('❌ Nada marcado após o clique');
+            log('❌ Nada marcado após clique');
             return { ok: false, marcado: null };
         }
-
         const marcado = marcados[0];
-        log(`📋 Marcado agora: "${marcado.texto.slice(0, 50)}..."`);
+        log(`📋 Marcado: "${marcado.texto.slice(0, 50)}..."`);
 
-        const bateu = bateComAlvo(marcado.texto, textoOpcao);
-        if (bateu) {
-            log('✅ Confirmado — marcou certo!');
+        if (bateComAlvo(marcado.texto, textoOpcao)) {
+            log('✅ Confirmado');
             return { ok: true, marcado };
-        } else {
-            log(`❌ Marcou errado! Esperava "${textoOpcao.slice(0, 30)}..." mas ficou "${marcado.texto.slice(0, 30)}..."`);
-            return { ok: false, marcado };
         }
+        log(`❌ Marcou errado!`);
+        return { ok: false, marcado };
     }
 
     async function clicarTerminar() {
         const btn = acharBotaoTerminar();
         if (!btn) { log('❌ TERMINAR não achado'); return false; }
-        log('📤 Clicando em TERMINAR');
+        log('📤 TERMINAR');
         try { btn.click(); } catch(_) {}
         await sleep(200);
         if (document.contains(btn) && btn.offsetParent !== null) {
@@ -309,46 +289,76 @@
         return true;
     }
 
-    // ===================== IA =====================
-    function detectarTipoQuestao(pergunta) {
-        const p = pergunta.toLowerCase();
-        if (/fato|opinião|opiniao|verdade|mentira|realidade|ficção/i.test(p)) return 'fato_opiniao';
-        if (/significa|sentido|interpreta|infere|conclui/i.test(p)) return 'interpretacao';
-        if (/sinônimo|antônimo|sinonimo|antonimo/i.test(p)) return 'sinonimo';
-        if (/ortografia|escrita correta|grafia/i.test(p)) return 'ortografia';
-        if (/classe gramatical|substantivo|adjetivo|verbo|advérbio/i.test(p)) return 'gramatica';
-        if (/pontuação|vírgula|interrogação/i.test(p)) return 'pontuacao';
-        return 'geral';
+    // ===================== IA (API PADRÃO) =====================
+    async function perguntarIA(prompt, totalOpcoes) {
+        for (let t = 0; t < TENTATIVAS; t++) {
+            try {
+                log(`🌐 Tentativa ${t+1}/${TENTATIVAS}...`);
+                const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + API_KEY,
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': location.origin,
+                        'X-Title': 'QuizVote'
+                    },
+                    body: JSON.stringify({
+                        model: 'openrouter/free',
+                        messages: [
+                            { role: 'system', content: 'Responda SEMPRE no formato "RESPOSTA: N".' },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: t > 0 ? 0.4 : 0,
+                        max_tokens: 400
+                    })
+                });
+                if (!r.ok) {
+                    log(`  ❌ HTTP ${r.status}`);
+                    continue;
+                }
+                const d = await r.json();
+                const raw = (d.choices && d.choices[0] &&
+                             d.choices[0].message &&
+                             d.choices[0].message.content || '').trim();
+                const modeloReal = (d.model || 'openrouter/free').split('/').pop();
+
+                if (!raw) { log('  ⚠️ Vazio'); continue; }
+                log(`  📩 "${raw.slice(0,80)}" via ${modeloReal}`);
+
+                let num = null;
+                const mResp = raw.match(/RESPOSTA[:\s]*(\d+)/i);
+                if (mResp) num = parseInt(mResp[1], 10);
+                else {
+                    const mNum = raw.match(/\b(\d+)\b/g);
+                    if (mNum) for (const s of mNum) {
+                        const n = parseInt(s, 10);
+                        if (n >= 1 && n <= totalOpcoes) { num = n; break; }
+                    }
+                }
+                if (num && num >= 1 && num <= totalOpcoes) {
+                    log(`  ✅ ${num}`);
+                    return { num, raw, modelo: modeloReal };
+                }
+            } catch (e) {
+                log(`  ❌ ${e.message.slice(0,50)}`);
+            }
+        }
+        return null;
     }
 
-    function montarPrompt(pergunta, opcoes, contexto, tipo, rodada) {
+    async function votarQuestao(pergunta, opcoes, contexto) {
         const lista = opcoes.map((o, i) => `${i+1}) ${o}`).join('\n');
         const blocoCtx = contexto && contexto.length > 50
-            ? `TEXTO DE APOIO (páginas do livro lidas):\n${contexto}\n`
+            ? `TEXTO DE APOIO:\n${contexto}\n`
             : '';
 
-        const instrucoesEspeciais = {
-            fato_opiniao: `ATENÇÃO — FATO vs OPINIÃO:
-- FATO: descreve algo real, objetivo, verificável. Não depende de quem fala.
-- OPINIÃO: expressa juízo, crença, sentimento, dúvida, possibilidade, valor ("acho", "talvez", "pode", "com certeza", "pacientemente").
-- POSSIBILIDADE (pode/deve/talvez) NÃO é fato.
-- ADVÉRBIOS DE MODO subjetivos ("pacientemente") tornam a frase OPINIÃO.
-- Descrições de como algo funciona fisicamente SÃO fato.`,
-            interpretacao: `Interpretação de texto: use SEMPRE o contexto. A resposta deve ser comprovada pelo texto.`,
-            sinonimo: `Substitua mentalmente cada opção na frase original. Escolha a que mantém sentido idêntico.`,
-            geral: `Analise cada alternativa com cuidado. Elimine as claramente erradas.`
-        };
-        const instrucao = instrucoesEspeciais[tipo] || instrucoesEspeciais.geral;
+        const votos = {}, detalhes = [];
+        for (let r = 1; r <= RODADAS_VOTACAO; r++) {
+            log(`🗳️ Rodada ${r}/${RODADAS_VOTACAO}`);
+            elStatus.textContent = `🗳️ ${r}/${RODADAS_VOTACAO}...`;
 
-        const variacao = [
-            'Escolha UMA opção.',
-            'Pense passo a passo internamente, então escolha UMA opção.',
-            'Reflita sobre cada alternativa. Elimine as erradas. Escolha a correta.'
-        ][(rodada - 1) % 3];
-
-        return `Você é um professor de português experiente corrigindo prova brasileira.
-
-${instrucao}
+            const prompt =
+`Você é um professor de português corrigindo prova brasileira.
 
 ${blocoCtx}
 PERGUNTA:
@@ -357,88 +367,13 @@ ${pergunta}
 ALTERNATIVAS:
 ${lista}
 
-${variacao}
+Analise cada alternativa com cuidado. Elimine as claramente erradas.
 
 FORMATO OBRIGATÓRIO — apenas uma linha:
 RESPOSTA: N
 Não escreva mais nada.`;
-    }
 
-    async function perguntarUmaVez(prompt, totalOpcoes, rodada) {
-        for (let mi = 0; mi < MODELOS.length; mi++) {
-            const modelo = MODELOS[mi];
-            for (let t = 0; t < TENTATIVAS_POR_MODELO; t++) {
-                try {
-                    elStatus.textContent = `🌐 Modelo ${mi+1}/${MODELOS.length}...`;
-                    log(`🌐 ${modelo} (tent. ${t+1})`);
-
-                    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': 'Bearer ' + API_KEY,
-                            'Content-Type': 'application/json',
-                            'HTTP-Referer': location.origin,
-                            'X-Title': 'QuizVote'
-                        },
-                        body: JSON.stringify({
-                            model: modelo,
-                            messages: [
-                                { role: 'system', content: 'Responda SEMPRE no formato "RESPOSTA: N".' },
-                                { role: 'user', content: prompt }
-                            ],
-                            temperature: rodada > 1 ? 0.4 : 0,
-                            max_tokens: 400
-                        })
-                    });
-
-                    if (!r.ok) {
-                        log(`  ❌ HTTP ${r.status}`);
-                        break;
-                    }
-                    const d = await r.json();
-                    if (d.error) {
-                        log(`  ❌ API: ${JSON.stringify(d.error).slice(0,100)}`);
-                        break;
-                    }
-                    const raw = (d.choices && d.choices[0] &&
-                                 d.choices[0].message &&
-                                 d.choices[0].message.content || '').trim();
-                    const modeloReal = (d.model || modelo).split('/').pop();
-
-                    if (!raw) { log(`  ⚠️ Vazio`); continue; }
-                    log(`  📩 "${raw.slice(0,80)}" via ${modeloReal}`);
-
-                    let num = null;
-                    const mResp = raw.match(/RESPOSTA[:\s]*(\d+)/i);
-                    if (mResp) num = parseInt(mResp[1], 10);
-                    else {
-                        const mNum = raw.match(/\b(\d+)\b/g);
-                        if (mNum) for (const s of mNum) {
-                            const n = parseInt(s, 10);
-                            if (n >= 1 && n <= totalOpcoes) { num = n; break; }
-                        }
-                    }
-                    if (num && num >= 1 && num <= totalOpcoes) {
-                        log(`  ✅ ${num} via ${modeloReal}`);
-                        return { num, raw, modelo: modeloReal };
-                    }
-                } catch (e) {
-                    log(`  ❌ ${e.message.slice(0,50)}`);
-                }
-            }
-        }
-        return null;
-    }
-
-    async function votarQuestao(pergunta, opcoes, contexto) {
-        const tipo = detectarTipoQuestao(pergunta);
-        log(`📋 Tipo: ${tipo}`);
-
-        const votos = {}, detalhes = [];
-        for (let r = 1; r <= RODADAS_VOTACAO; r++) {
-            log(`🗳️ Rodada ${r}/${RODADAS_VOTACAO}`);
-            const prompt = montarPrompt(pergunta, opcoes, contexto, tipo, r);
-            const res = await perguntarUmaVez(prompt, opcoes.length, r);
+            const res = await perguntarIA(prompt, opcoes.length);
             if (!res) { log('  ❌ Sem resposta'); continue; }
             votos[res.num] = (votos[res.num] || 0) + 1;
             detalhes.push(res.num);
@@ -449,11 +384,11 @@ Não escreva mais nada.`;
             if (votos[k] > maxVotos) { maxVotos = votos[k]; vencedor = parseInt(k, 10); empate = false; }
             else if (votos[k] === maxVotos) empate = true;
         }
-        return { vencedor, votos, detalhes, empate, tipo };
+        return { vencedor, votos, detalhes, empate };
     }
 
     // ===================== RESOLVER =====================
-    async function resolverQuestao(container, tentativa) {
+    async function resolverQuestao(container) {
         setModo('resolvendo');
         try {
             const { pergunta, opcoes } = extrairQuestao(container);
@@ -467,8 +402,7 @@ Não escreva mais nada.`;
             log(`Contexto: ${contexto.length} chars`);
             elStatus.textContent = `🧠 "${pergunta.slice(0, 40)}..."`;
 
-            const resultado = await votarQuestao(pergunta, opcoes, contexto);
-            const { vencedor, votos, detalhes, empate } = resultado;
+            const { vencedor, votos, detalhes, empate } = await votarQuestao(pergunta, opcoes, contexto);
 
             if (!vencedor) {
                 elStatus.textContent = '❌ IA não respondeu';
@@ -479,26 +413,17 @@ Não escreva mais nada.`;
             const votosStr = `[${detalhes.join(',')}]`;
             log(`Votos: ${JSON.stringify(votos)} | Seq: ${votosStr}`);
 
-            if (empate) {
-                log('⚠️ EMPATE');
-                elStatus.textContent = `⚠️ Empate ${votosStr}`;
-                if (!ENVIAR_SEMPRE) { setModo('erro'); return false; }
-            }
-
             const textoOpcao = opcoes[vencedor - 1];
             log(`Marcar opção ${vencedor}: "${textoOpcao}"`);
             elStatus.textContent = `✅ (${vencedor}) ${textoOpcao.slice(0, 35)} ${votosStr}`;
 
             await sleep(DELAY_ANTES_CLIQUE);
-            const resultadoClique = await clicarRadio(textoOpcao, container);
+            const resultado = await clicarRadio(textoOpcao, container);
 
-            // ============ VERIFICAÇÃO FINAL ============
-            if (VERIFICAR_ANTES_ENVIAR) {
-                if (!resultadoClique || !resultadoClique.ok) {
-                    elStatus.textContent = '❌ Marcou errada ou nada — abortado';
-                    setModo('erro');
-                    return false;
-                }
+            if (VERIFICAR_ANTES_ENVIAR && !resultado.ok) {
+                elStatus.textContent = '❌ Marcou errada ou nada — abortado';
+                setModo('erro');
+                return false;
             }
 
             elStatus.textContent = '👆 Confirmada. Enviando...';
@@ -537,8 +462,7 @@ Não escreva mais nada.`;
                     inicioQuestao = Date.now();
                     processandoQuestao = true;
                     pedidoRepetir = false;
-                    await resolverQuestao(container, tentativaAtual);
-                    tentativaAtual = 1;
+                    await resolverQuestao(container);
                     await sleep(ESPERA_POS_Q);
                     let t = 0;
                     while (acharContainerQuestao() && t < 20) { await sleep(500); t++; }
@@ -605,13 +529,12 @@ Não escreva mais nada.`;
         const container = acharContainerQuestao();
         if (!container) { elStatus.textContent = '⚠️ Sem questão'; return; }
         if (processandoQuestao) { elStatus.textContent = '⏳ Já resolvendo'; return; }
-        tentativaAtual++;
         pedidoRepetir = true;
     };
 
     // ===================== INICIA =====================
     window.__autoIA = { parar };
-    console.log('[AutoIA] Ativo. Clique + verificação após 1.5s.');
+    console.log('[AutoIA] Ativo. Modelo: openrouter/free');
 
     setModo('folheando');
     loopPrincipal();
