@@ -1,10 +1,13 @@
-(async function solverQuizIA() {
-    if (window.__quizSolver) { window.__quizSolver.parar(); return; }
+(async function autoReaderComIA() {
+    if (window.__autoIA) { window.__autoIA.parar(); return; }
 
     // ============ CONFIG ============
-    const MODELO = 'meta-llama/llama-3.3-70b-instruct:free';
-    const AUTOSUBMIT = true;   // clicar em TERMINAR sozinho? (true/false)
-    const DELAY_MS = 1500;     // espera antes de clicar na opção (ms)
+    const SEGUNDOS_PAGINA = 5;
+    const MODELO          = 'meta-llama/llama-3.3-70b-instruct:free';
+    const AUTOSUBMIT      = true;   // clica em TERMINAR automaticamente
+    const DELAY_CLIQUE    = 1500;   // ms antes de clicar na opção
+    const TIMEOUT_QUESTAO = 60000;  // se travar numa questão, destrava após 60s
+    const ESPERA_POS_Q    = 2500;   // ms de espera após enviar, antes de retomar
 
     let API_KEY = localStorage.getItem('__or_key');
     if (!API_KEY) {
@@ -18,24 +21,28 @@
     painel.style.cssText = `
         position:fixed; bottom:20px; right:20px; z-index:2147483647;
         background:#1a1a1a; color:#fff; font:12px/1.45 system-ui,sans-serif;
-        padding:14px 16px; border-radius:10px; max-width:340px;
+        padding:14px 16px; border-radius:10px; max-width:320px;
         box-shadow:0 6px 25px rgba(0,0,0,.6); user-select:none;
     `;
     painel.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
             <span id="__dot" style="width:10px;height:10px;background:#4caf50;
                   border-radius:50%;animation:pulse 1s infinite;"></span>
-            <strong>Quiz IA</strong>
+            <strong id="__titulo">📖 Folheando</strong>
         </div>
-        <div id="__status" style="color:#ccc;min-height:40px;
-             white-space:pre-wrap;font-size:12px;margin-bottom:8px;">Vigiando tela...</div>
+        <div id="__contador" style="font-size:30px;font-weight:bold;text-align:center;
+             color:#4caf50;margin:4px 0;font-variant-numeric:tabular-nums;">5</div>
+        <div id="__status" style="color:#ccc;font-size:11px;
+             white-space:pre-wrap;margin-bottom:8px;min-height:32px;">
+             Páginas: <span id="__total" style="color:#fff;font-weight:bold;">0</span>
+        </div>
         <div style="display:flex;gap:6px;">
             <button id="__btnParar" style="flex:1;background:#e91e63;color:#fff;
                 border:0;padding:8px;border-radius:6px;font:bold 11px sans-serif;
                 cursor:pointer;">⏹ PARAR</button>
             <button id="__btnKey" style="background:#333;color:#fff;border:0;
                 padding:8px 10px;border-radius:6px;font:bold 11px sans-serif;
-                cursor:pointer;">🔑 key</button>
+                cursor:pointer;">🔑</button>
         </div>
         <style>
             @keyframes pulse{
@@ -46,23 +53,43 @@
     `;
     document.body.appendChild(painel);
 
-    const elStatus = painel.querySelector('#__status');
-    const elDot    = painel.querySelector('#__dot');
+    const elDot      = painel.querySelector('#__dot');
+    const elTitulo   = painel.querySelector('#__titulo');
+    const elContador = painel.querySelector('#__contador');
+    const elTotal    = painel.querySelector('#__total');
+    const elStatus   = painel.querySelector('#__status');
 
-    function log(msg) {
-        console.log('[QuizIA]', msg);
-        elStatus.textContent = msg;
+    let contador = SEGUNDOS_PAGINA;
+    let paginasViradas = 0;
+    let modo = 'folheando'; // 'folheando' | 'resolvendo' | 'parado'
+    let ultimaQuestao = '';
+    let inicioQuestao = 0;
+
+    function log(txt) { console.log('[AutoIA]', txt); }
+
+    function setModo(novo) {
+        modo = novo;
+        if (novo === 'folheando') {
+            elTitulo.textContent = '📖 Folheando';
+            elDot.style.background = '#4caf50';
+            elDot.style.animation = 'pulse 1s infinite';
+            elContador.style.color = '#4caf50';
+            elContador.textContent = SEGUNDOS_PAGINA;
+        } else if (novo === 'resolvendo') {
+            elTitulo.textContent = '🧠 Resolvendo...';
+            elDot.style.background = '#2196f3';
+            elDot.style.animation = 'none';
+            elContador.style.color = '#2196f3';
+            elContador.textContent = '🤖';
+        }
     }
 
-    // ============ UTIL ============
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-
+    // ============ DETECÇÃO DE QUESTÃO ============
     function acharBotaoTerminar() {
         const btns = document.querySelectorAll('button');
         for (const b of btns) {
             if (b.offsetParent === null) continue;
-            const t = (b.textContent || '').trim();
-            if (/^terminar$/i.test(t)) return b;
+            if (/^terminar$/i.test((b.textContent || '').trim())) return b;
         }
         return null;
     }
@@ -70,8 +97,7 @@
     function acharContainerQuestao() {
         const btnT = acharBotaoTerminar();
         if (!btnT) return null;
-        let c = btnT.parentElement;
-        let i = 0;
+        let c = btnT.parentElement, i = 0;
         while (c && c !== document.body && i < 15) {
             const t = (c.innerText || '').trim();
             if (/tentativas\s+restantes/i.test(t) && t.length > 60) return c;
@@ -81,42 +107,31 @@
     }
 
     function extrairQuestao(container) {
-        // pega texto "limpo" via innerText, remove linhas de interface
         const linhas = (container.innerText || '')
             .split('\n').map(s => s.trim()).filter(Boolean)
             .filter(s =>
                 !/^tentativas\s+restantes/i.test(s) &&
                 !/^terminar$/i.test(s) &&
-                !/^bloco\s*\d+/i.test(s) &&
-                s.length > 0
+                !/^bloco\s*\d+/i.test(s)
             );
-
-        // Acha a pergunta: linha mais longa que termina em "?" ou tem "?"
         let pergunta = linhas.find(s => s.includes('?') && s.length > 20) || linhas[0];
-
-        // Pega as opções: linhas depois da pergunta (até 8)
-        const idxPerg = linhas.indexOf(pergunta);
-        let opcoes = linhas.slice(idxPerg + 1)
+        const idx = linhas.indexOf(pergunta);
+        const opcoes = linhas.slice(idx + 1)
             .filter(s => s.length > 2 && s.length < 250)
             .slice(0, 8);
-
         return { pergunta, opcoes };
     }
 
     function acharElementoPorTexto(texto, container) {
         if (!texto) return null;
         const alvo = texto.trim().toLowerCase();
-        const todos = container.querySelectorAll('*');
         let melhor = null, melhorLen = Infinity;
-        for (const el of todos) {
+        for (const el of container.querySelectorAll('*')) {
             if (el.children.length > 3) continue;
             const t = (el.innerText || '').trim().toLowerCase();
             if (!t) continue;
-            // match exato ou muito próximo
-            if (t === alvo || (t.length > 10 && t.includes(alvo.slice(0, Math.min(30, alvo.length))))) {
-                if (t.length < melhorLen) {
-                    melhor = el; melhorLen = t.length;
-                }
+            if (t === alvo || (t.length > 10 && t.includes(alvo.slice(0, 30)))) {
+                if (t.length < melhorLen) { melhor = el; melhorLen = t.length; }
             }
         }
         return melhor;
@@ -126,7 +141,7 @@
     async function perguntarIA(pergunta, opcoes) {
         const lista = opcoes.map((o, i) => `${i+1}. ${o}`).join('\n');
         const prompt =
-`Você responde questões de múltipla escolha em português com base em interpretação de texto.
+`Você responde questões de múltipla escolha em português.
 
 PERGUNTA:
 ${pergunta}
@@ -134,7 +149,7 @@ ${pergunta}
 OPÇÕES:
 ${lista}
 
-Responda APENAS com o número da opção correta (ex: 2). Sem explicação, sem texto extra.`;
+Responda APENAS com o número da opção correta. Sem texto extra.`;
 
         const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
@@ -142,7 +157,7 @@ Responda APENAS com o número da opção correta (ex: 2). Sem explicação, sem 
                 'Authorization': 'Bearer ' + API_KEY,
                 'Content-Type': 'application/json',
                 'HTTP-Referer': location.origin,
-                'X-Title': 'LeiaParana Quiz Solver'
+                'X-Title': 'LeiaParana Auto Reader'
             },
             body: JSON.stringify({
                 model: MODELO,
@@ -154,136 +169,176 @@ Responda APENAS com o número da opção correta (ex: 2). Sem explicação, sem 
                 max_tokens: 20
             })
         });
-
-        if (!r.ok) {
-            const erro = await r.text();
-            throw new Error(`OpenRouter ${r.status}: ${erro.slice(0, 200)}`);
-        }
-
+        if (!r.ok) throw new Error(`OpenRouter ${r.status}: ${(await r.text()).slice(0,150)}`);
         const data = await r.json();
         const txt = (data?.choices?.[0]?.message?.content || '').trim();
         const num = parseInt(txt.replace(/\D/g, ''), 10);
         return { num, raw: txt };
     }
 
-    // ============ RESOLVER ============
-    let resolvendo = false;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    async function tentarResolver() {
-        if (resolvendo) return;
-        const container = acharContainerQuestao();
-        if (!container) return;
-
-        resolvendo = true;
-        elDot.style.background = '#2196f3';
-        elDot.style.animation = 'none';
-
+    // ============ RESOLVER QUESTÃO ============
+    async function resolverQuestao(container) {
+        setModo('resolvendo');
         try {
             const { pergunta, opcoes } = extrairQuestao(container);
             if (!pergunta || opcoes.length < 2) {
-                log('❌ Não consegui extrair pergunta/opções.\n' +
-                    'Pergunta: ' + (pergunta || '—').slice(0,80) + '\n' +
-                    'Opções: ' + opcoes.length);
-                resolvendo = false;
-                return;
+                elStatus.textContent = '❌ Não extraí a questão';
+                log('Falha na extração. Pergunta=' + pergunta + ' Opcoes=' + opcoes.length);
+                return false;
             }
 
-            log(`🧠 Perguntando à IA...\n"${pergunta.slice(0, 70)}..."`);
+            elStatus.textContent = `🧠 "${pergunta.slice(0, 60)}..."`;
+            log('Perguntando IA: ' + pergunta.slice(0, 80));
 
-            let ia;
-            try {
-                ia = await perguntarIA(pergunta, opcoes);
-            } catch (e) {
-                log('❌ Erro na API: ' + e.message);
-                elDot.style.background = '#f44336';
-                resolvendo = false;
-                return;
-            }
-
+            const ia = await perguntarIA(pergunta, opcoes);
             const idx = ia.num - 1;
             if (isNaN(idx) || idx < 0 || idx >= opcoes.length) {
-                log(`❌ IA respondeu "${ia.raw}" — fora do intervalo (1-${opcoes.length})`);
-                elDot.style.background = '#f44336';
-                resolvendo = false;
-                return;
+                elStatus.textContent = `❌ IA respondeu "${ia.raw}"`;
+                log('Resposta fora do range: ' + ia.raw);
+                return false;
             }
 
             const textoOpcao = opcoes[idx];
-            log(`✅ IA escolheu (${ia.num}):\n"${textoOpcao.slice(0, 80)}"`);
+            log(`IA escolheu (${ia.num}): ${textoOpcao.slice(0, 80)}`);
+            elStatus.textContent = `✅ (${ia.num}) ${textoOpcao.slice(0, 50)}`;
 
-            // Acha e clica no elemento que contém essa opção
             const alvo = acharElementoPorTexto(textoOpcao, container);
             if (!alvo) {
-                log('❌ Não achei o elemento clicável da opção.');
-                elDot.style.background = '#f44336';
-                resolvendo = false;
-                return;
+                elStatus.textContent = '❌ Opção não clicável';
+                return false;
             }
 
-            // Sobe até achar algo clicável (label, md-radio-button, button)
-            let clicavel = alvo;
-            let up = 0;
+            // Sobe até elemento clicável
+            let clicavel = alvo, up = 0;
             while (clicavel && up < 6) {
                 const tag = clicavel.tagName.toLowerCase();
-                if (tag === 'button' || tag === 'label' ||
-                    tag.includes('radio') ||
+                if (tag === 'button' || tag === 'label' || tag.includes('radio') ||
                     clicavel.getAttribute('role') === 'radio' ||
                     clicavel.getAttribute('ng-click')) break;
                 clicavel = clicavel.parentElement; up++;
             }
             if (!clicavel) clicavel = alvo;
 
-            await sleep(DELAY_MS);
+            await sleep(DELAY_CLIQUE);
             clicavel.click();
-            log('👆 Opção clicada. Enviando...');
+            elStatus.textContent = '👆 Opção marcada...';
+            log('Cliquei na opção');
 
             if (AUTOSUBMIT) {
                 await sleep(900);
                 const btnT = acharBotaoTerminar();
                 if (btnT) {
                     btnT.click();
-                    log('📤 Enviado!');
+                    elStatus.textContent = '📤 Enviado! Retomando...';
+                    log('Enviei (TERMINAR)');
                 } else {
-                    log('⚠️ Botão TERMINAR não encontrado — envie manualmente.');
+                    elStatus.textContent = '⚠️ Botão TERMINAR não achado';
                 }
-            } else {
-                log('✋ Autosubmit desligado. Clique em TERMINAR manualmente.');
             }
-
-            elDot.style.background = '#4caf50';
-            elDot.style.animation = 'pulse 1s infinite';
+            return true;
         } catch (e) {
-            log('❌ Erro inesperado: ' + e.message);
+            elStatus.textContent = '❌ ' + e.message.slice(0, 60);
+            log('Erro: ' + e.message);
             console.error(e);
-            elDot.style.background = '#f44336';
-        } finally {
-            // trava por alguns segundos pra não reprocessar a mesma questão
-            setTimeout(() => { resolvendo = false; }, 8000);
+            return false;
         }
     }
 
-    // ============ MONITOR ============
-    const obs = new MutationObserver(() => tentarResolver());
-    obs.observe(document.body, {
-        childList: true, subtree: true,
-        attributes: true, attributeFilter: ['style','class']
-    });
-    const timer = setInterval(tentarResolver, 1500);
+    // ============ LOOP PRINCIPAL ============
+    let processandoQuestao = false;
+
+    async function loopPrincipal() {
+        while (modo !== 'parado') {
+            // 1) Verifica se tem questão na tela
+            const container = acharContainerQuestao();
+            if (container && !processandoQuestao) {
+                const textoAtual = (container.innerText || '').trim();
+                // evita reprocessar a mesma questão por engano (só se o texto mudou)
+                if (textoAtual !== ultimaQuestao || Date.now() - inicioQuestao > TIMEOUT_QUESTAO) {
+                    ultimaQuestao = textoAtual;
+                    inicioQuestao = Date.now();
+                    processandoQuestao = true;
+                    await resolverQuestao(container);
+                    // espera a questão sair da tela (até 30s)
+                    await sleep(ESPERA_POS_Q);
+                    let tentativas = 0;
+                    while (acharContainerQuestao() && tentativas < 20) {
+                        await sleep(500); tentativas++;
+                    }
+                    processandoQuestao = false;
+                    ultimaQuestao = '';
+                    setModo('folheando');
+                    // reseta o contador pra não virar página imediatamente
+                    contador = SEGUNDOS_PAGINA;
+                    continue;
+                } else {
+                    // mesma questão, mas travada há muito tempo → destrava
+                    if (Date.now() - inicioQuestao > TIMEOUT_QUESTAO) {
+                        log('Timeout da questão, destravando');
+                        ultimaQuestao = '';
+                        processandoQuestao = false;
+                    }
+                }
+            }
+
+            // 2) Conta 1 segundo e vira página se chegou em 0
+            await sleep(1000);
+            if (modo === 'parado') break;
+            if (processandoQuestao) continue;
+
+            contador--;
+            elContador.textContent = contador;
+
+            if (contador <= 0) {
+                avancarPagina();
+                paginasViradas++;
+                elTotal.textContent = paginasViradas;
+                contador = SEGUNDOS_PAGINA;
+                elContador.textContent = contador;
+                log(`➡ Página ${paginasViradas}`);
+            }
+        }
+    }
+
+    function avancarPagina() {
+        try {
+            const alvo = document.querySelector('[ng-click*="goToNextPage"]')
+                      || document.querySelector('.page-switch-overlay-icon.next');
+            if (alvo && window.angular) {
+                let s = angular.element(alvo).scope(), n = 0;
+                while (s && typeof s.goToNextPage !== 'function' && n < 12) { s = s.$parent; n++; }
+                if (s && typeof s.goToNextPage === 'function') {
+                    s.$apply(() => s.goToNextPage());
+                    return;
+                }
+            }
+        } catch (e) {}
+        const btn = document.querySelector('.page-switch-overlay-icon.embedded.next');
+        if (btn && btn.offsetParent !== null) { btn.click(); return; }
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+            key:'ArrowRight', code:'ArrowRight', keyCode:39, which:39, bubbles:true
+        }));
+    }
 
     // ============ PARAR ============
     function parar() {
-        clearInterval(timer);
-        obs.disconnect();
-        painel.remove();
-        window.__quizSolver = null;
-        console.log('[QuizIA] Parado.');
+        modo = 'parado';
+        setTimeout(() => painel.remove(), 100);
+        window.__autoIA = null;
+        console.log('[AutoIA] Parado. Total páginas:', paginasViradas);
     }
     painel.querySelector('#__btnParar').onclick = parar;
     painel.querySelector('#__btnKey').onclick = () => {
         const nova = prompt('Nova chave OpenRouter:', API_KEY);
-        if (nova) { API_KEY = nova; localStorage.setItem('__or_key', nova); log('🔑 Chave atualizada.'); }
+        if (nova) { API_KEY = nova; localStorage.setItem('__or_key', nova); }
     };
 
-    window.__quizSolver = { parar };
-    console.log('[QuizIA] Ativo. Modelo:', MODELO);
+    window.__autoIA = { parar };
+    console.log('[AutoIA] Ativo. Modelo:', MODELO, '| Autosubmit:', AUTOSUBMIT);
+
+    // Inicia o loop
+    setModo('folheando');
+    loopPrincipal();
 })();
