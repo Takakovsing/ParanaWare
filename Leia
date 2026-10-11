@@ -538,4 +538,4 @@ Não escreva mais nada.`;
 
     setModo('folheando');
     loopPrincipal();
-})();
+})(); 
